@@ -1,4 +1,5 @@
 import os
+import ast
 import base64
 
 import flet as ft
@@ -155,9 +156,9 @@ class ChatDetails:
         if role_user <=1 or force is True:
             # 总结标题
             summary_prompt = {"role": "user", "content":[{"type": "text", "text": "用最精简的语言总结对话内容并作为标题, 字数尽可能压缩在15个字以内, 不要包含任何标点符号"}]}
-            chat_details_msg.append(summary_prompt)
+            summary_for_messages = chat_details_msg + [summary_prompt]      # 不用再次 deepcopy, 追加就行
             logger.debug("Summarizing the chat title...")
-            summary_response = await app_agent.agent_summary.ainvoke(chat_details_msg)
+            summary_response = await app_agent.agent_summary.ainvoke(summary_for_messages)
             summary_title = summary_response.content
             # 安全处理标题
             summary_title = app_chat_utils.generate_safe_filename(original_string=summary_title)
@@ -459,8 +460,8 @@ class ChatDetails:
         
         # 流式对话后统一处理 messages
         # 1.复制一份数据, 防止用户此刻点击别的会话
-        current_chat_data_filename = deepcopy(cls.current_chat_data_filename)
-        chat_details_data = deepcopy(cls.chat_details_data)
+        cp_current_chat_data_filename = deepcopy(cls.current_chat_data_filename)
+        cp_chat_details_data = deepcopy(cls.chat_details_data)
         cp_tool_calls_data = deepcopy(tool_calls_data)
         cp_ai_text_message = deepcopy(ai_text_message)
         cp_tool_messages = deepcopy(tool_messages)
@@ -477,15 +478,15 @@ class ChatDetails:
                     "function": {"name": tc.get("name", ""), "arguments": tc.get("args", "")},
                 })
             # 添加到历史信息里
-            chat_details_data["messages"].append(ai_tool_calls_message)
+            cp_chat_details_data["messages"].append(ai_tool_calls_message)
         # 3.Tool Messages
         if len(cp_tool_messages) > 0:
-            chat_details_data["messages"].extend(cp_tool_messages)
+            cp_chat_details_data["messages"].extend(cp_tool_messages)
         # 4.AI 最终文本
         if cp_ai_text_message["content"] != "":
-            chat_details_data["messages"].append(cp_ai_text_message)
-        # 5.保持到 ChatData 中
-        app_chat_utils.save_chat_details_data_with_filename(current_chat_data_filename, chat_details_data)
+            cp_chat_details_data["messages"].append(cp_ai_text_message)
+        # 5.保持到 ChatData 中 (这里需要保存复制后的)
+        app_chat_utils.save_chat_details_data_with_filename(cp_current_chat_data_filename, cp_chat_details_data)
         # 6.删除 & 刷新 附件列表
         from src.components.chat_with_user_input import UserInput
         app_chat_utils.delete_tempfiles_with_prefix(prefix=cls.chat_list_control.data[:32])
@@ -493,13 +494,13 @@ class ChatDetails:
         UserInput.switch_button_to_send()
         cls.page.update()
         # 7.重新赋值 (如果此刻用户没有切换对话列表)
-        if cls.chat_list_control.data == current_chat_data_filename:
-            cls.chat_details_data = chat_details_data
-            logger.debug(f"Continue saving chat data; file is: {current_chat_data_filename}")
+        if cls.chat_list_control.data == cp_current_chat_data_filename:
+            cls.chat_details_data = cp_chat_details_data
+            logger.debug(f"Continue saving chat data; file is: {cp_current_chat_data_filename}")
         else:
             logger.warning(f"User has switch chat list, Skip updating cls.chat_details_data")
         # 8.总结标题
-        cls.page.run_task(cls.chat_details_title_summary, current_chat_data_filename, chat_details_data)
+        cls.page.run_task(cls.chat_details_title_summary, cp_current_chat_data_filename, cp_chat_details_data)
         
     @classmethod
     def merge_tool_calls_data(cls, main_data: dict, chunk_data: dict):
@@ -565,26 +566,47 @@ class ChatDetails:
         """
         基于 ToolMessage 或 Dict 渲染显示内容
         """
-        logger.debug(f"Tool Call by Content: {type(tool_message_or_dict)} | {tool_message_or_dict}")
         # 抽取数据: 运行期间
         if isinstance(tool_message_or_dict, ToolMessage):
             tool_call_id = tool_message_or_dict.tool_call_id
             tool_call_name = tool_message_or_dict.name
             too_call_content = tool_message_or_dict.content
-            logger.warning(f"id: {tool_call_id}")
-            logger.warning(f"name: {tool_call_name}")
-            logger.warning(f"content: {too_call_content}")
         # 抽取数据: 从文件里读取数据
         elif isinstance(tool_message_or_dict, dict):
             tool_call_id = tool_message_or_dict.get("tool_call_id")
             tool_call_name = tool_message_or_dict.get("name")
             too_call_content = tool_message_or_dict.get("content")
-            logger.warning(f"id: {tool_call_id}")
-            logger.warning(f"name: {tool_call_name}")
-            logger.warning(f"content: {too_call_content}")
-        # 渲染数据
-        tool_call_response = ft.Container(
-            ft.Markdown(value=too_call_content)
-        )
+        # 处理数据
+        if too_call_content in ["", "[]", None]:
+            too_call_content = ""
 
+        # 优化显示内容
+        render_markdown = ""
+        # 文件操作相关
+        if tool_call_name in ["ls", "glob"] and too_call_content != "":
+            # 转换成列表, 比 eval() 安全
+            # https://docs.python.org/zh-cn/3.14/library/ast.html#ast.literal_eval
+            too_call_content = ast.literal_eval(too_call_content)
+            for item_content in too_call_content:
+                render_markdown += item_content + "\n\n"
+        # 最后兜底, 原样显示
+        else:
+            render_markdown = too_call_content
+            logger.debug(f"Tool Call by Content: {type(tool_message_or_dict)} | {tool_message_or_dict}")
+
+        # 组装控件
+        style_sheet = ft.MarkdownStyleSheet(
+            p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700),
+        )
+        tool_call_response = ft.Container(
+            ft.Markdown(
+                value=render_markdown,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                # code_theme=ft.MarkdownCodeTheme.GITHUB,
+                md_style_sheet=style_sheet,
+            ),
+            alignment=ft.Alignment.TOP_LEFT,
+            padding=ft.Padding.symmetric(vertical=4, horizontal=10),
+            # border=ft.Border.all(width=1),
+        )
         return tool_call_response
