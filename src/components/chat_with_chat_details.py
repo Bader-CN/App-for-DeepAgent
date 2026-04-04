@@ -204,8 +204,8 @@ class ChatDetails:
                 # AI Tool Calls
                 elif msg_dict.get("role") == "assistant" and msg_dict.get("tool_calls") is not None:
                     for tool_call in msg_dict.get("tool_calls"):
-                        new_tool_calls_message_blk = cls.add_tool_calls_message_blk(tool_call.get("id"))
-                        new_tool_calls_message_blk.content.subtitle = ft.Text(tool_call)
+                        new_tool_calls_message_blk = cls.add_tool_calls_message_blk(tool_call_id=tool_call.get("id"))
+                        new_tool_calls_message_blk.content.title = cls.render_tool_calls_title(tool_call=tool_call)
                         cls.chat_details_messages.current.controls.append(new_tool_calls_message_blk)
                 # Tools Message
                 elif msg_dict.get("role") == "tool":
@@ -213,7 +213,8 @@ class ChatDetails:
                     for blk in cls.chat_details_messages.current.controls:
                         if isinstance(blk.content, ft.ExpansionTile):
                             if blk.content.data == tool_call_id:
-                                blk.content.controls[0].value = msg_dict.get("content")
+                                # blk.content.controls.clear()
+                                blk.content.controls.append(cls.render_tool_calls_content(tool_message_or_dict=msg_dict))
 
     
     @classmethod
@@ -322,13 +323,17 @@ class ChatDetails:
         """
         tool_calls_blk = ft.Container(
             ft.ExpansionTile(
-                title=ft.Text("Tool Calls"),
+                # 这两项为空, 先占位, 后续在添加和调整
+                title="",
+                controls=[],
+                # https://flet.dev/docs/controls/expansiontile/#flet.ExpansionTile.tile_padding
+                # 不设置默认为 ft.Padding.symmetric(horizontal=16.0)
+                tile_padding=5,
                 dense=True,
                 data=tool_call_id,
-                controls=[
-                    ft.Markdown(),
-                ],
             ),
+            # padding=ft.Padding.symmetric(vertical=2, horizontal=5),
+            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
         )
         return tool_calls_blk
     
@@ -352,7 +357,7 @@ class ChatDetails:
         # 添加到 chat_details_data["messages"] 中
         cls.chat_details_data["messages"].append(user_message)
         # 更新界面
-        cls.page.update()
+        # cls.page.update()
         # 发送 API 请求
         # https://docs.flet.dev/controls/page/?h=run_ta#flet.Page.render_views
         cls.page.run_task(cls.response_agent_message)
@@ -390,9 +395,6 @@ class ChatDetails:
             if isinstance(token, AIMessageChunk):
                 # 工具调用
                 if token.tool_call_chunks:
-                    # 记录每一个 AIMessage Token
-                    # logger.debug(token)
-
                     # 循环遍历每一个 tool_call 字典
                     for tool_call in token.tool_call_chunks:
                         # 情况1: 去掉没有 index 的特殊情况
@@ -404,18 +406,20 @@ class ChatDetails:
                         if index not in tool_calls_blk:
                             # 创建一个新的 tool_calls 消息块
                             new_tool_calls_blk = cls.add_tool_calls_message_blk()
-                            new_tool_calls_blk.content.subtitle = ft.Text(tool_call)
+                            new_tool_calls_blk.content.title =  cls.render_tool_calls_title(tool_call=tool_call)
                             # 使用字典记录该 tool_calls 消息块
                             tool_calls_blk[index] = new_tool_calls_blk
                             # 使用字典记录该 tool_calls 的数据
                             tool_calls_data[index] = {}
-                            cls.merge_tool_call_data(tool_calls_data[index], tool_call)
+                            cls.merge_tool_calls_data(tool_calls_data[index], tool_call)
                             # 添加进 chat_details_messages 的 ft.Column 中
                             cls.chat_details_messages.current.controls.append(new_tool_calls_blk)
                         # 情况3: index 在 tool_calls_blk 里
                         else:
-                            cls.merge_tool_call_data(tool_calls_data[index], tool_call)
-                            tool_calls_blk[index].content.subtitle = ft.Text(tool_calls_data[index])
+                            cls.merge_tool_calls_data(tool_calls_data[index], tool_call)
+                            tool_calls_blk[index].content.title = cls.render_tool_calls_title(tool_call=tool_calls_data[index])
+                        # 调试日志
+                        logger.debug(f"token.tool_call_chunks: {tool_call}")
 
                 # 普通文本
                 elif token.content:
@@ -436,13 +440,17 @@ class ChatDetails:
                 for idx, tool_call in tool_calls_data.items():
                     if tool_call.get("id") == token.tool_call_id:
                         # UI 渲染
-                        tool_calls_blk[idx].content.controls[0].value = token.content
+                        # tool_calls_blk[idx].content.controls.clear()
+                        tool_calls_blk[idx].content.controls.append(cls.render_tool_calls_content(tool_message_or_dict=token))
                         # 消息存储
                         tool_messages.append({
                             "role": "tool",
+                            "name": token.name,
                             "tool_call_id": token.tool_call_id,
                             "content": token.content
                         })
+                        # 调试日志
+                        logger.debug(f"ToolMessage_{idx}: {tool_call}")
                         break
             
             # 渲染/滚动界面
@@ -494,7 +502,7 @@ class ChatDetails:
         cls.page.run_task(cls.chat_details_title_summary, current_chat_data_filename, chat_details_data)
         
     @classmethod
-    def merge_tool_call_data(cls, main_data: dict, chunk_data: dict):
+    def merge_tool_calls_data(cls, main_data: dict, chunk_data: dict):
         """
         合并流式返回的 tool_call chunk
 
@@ -511,3 +519,72 @@ class ChatDetails:
                 main_data["args"] += v
             else:
                 main_data[k] = v
+
+    @classmethod
+    def render_tool_calls_title(cls, tool_call: dict):
+        """
+        基于 Tool Calls 字典来渲染显示内容
+        """
+        logger.debug(f"Tool Call by Title: {tool_call}")
+        # 抽取数据: 运行期间
+        if tool_call.get("function") is None:
+            tool_call_id = tool_call.get("id")
+            tool_call_name = tool_call.get("name")
+            tool_call_args = tool_call.get("args")
+        # 抽取数据: 从文件里读取数据
+        else:
+            tool_call_id = tool_call.get("id")
+            tool_call_name = tool_call.get("function").get("name")
+            tool_call_args = tool_call.get("function").get("arguments")            
+        # 组装显示内容
+        tool_call_title = ft.Row([], spacing=5)
+        for idx, call_value in enumerate([tool_call_id, tool_call_name, tool_call_args]):
+            if call_value is not None:
+                if idx == 0:
+                    bgcolor = ft.Colors.GREY
+                elif idx == 1:
+                    bgcolor = ft.Colors.GREEN
+                elif idx == 2:
+                    bgcolor = ft.Colors.BLUE
+                tool_call_text = ft.Container(
+                    ft.Text(
+                        value=call_value,
+                        color=ft.Colors.WHITE,
+                        font_family="Consolas",
+                    ),
+                    bgcolor=bgcolor,
+                    padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                    border_radius=5,
+                )
+                tool_call_title.controls.append(tool_call_text)
+        # 返回 tool_call_title 对象
+        return tool_call_title
+
+    @classmethod
+    def render_tool_calls_content(cls, tool_message_or_dict):
+        """
+        基于 ToolMessage 或 Dict 渲染显示内容
+        """
+        logger.debug(f"Tool Call by Content: {type(tool_message_or_dict)} | {tool_message_or_dict}")
+        # 抽取数据: 运行期间
+        if isinstance(tool_message_or_dict, ToolMessage):
+            tool_call_id = tool_message_or_dict.tool_call_id
+            tool_call_name = tool_message_or_dict.name
+            too_call_content = tool_message_or_dict.content
+            logger.warning(f"id: {tool_call_id}")
+            logger.warning(f"name: {tool_call_name}")
+            logger.warning(f"content: {too_call_content}")
+        # 抽取数据: 从文件里读取数据
+        elif isinstance(tool_message_or_dict, dict):
+            tool_call_id = tool_message_or_dict.get("tool_call_id")
+            tool_call_name = tool_message_or_dict.get("name")
+            too_call_content = tool_message_or_dict.get("content")
+            logger.warning(f"id: {tool_call_id}")
+            logger.warning(f"name: {tool_call_name}")
+            logger.warning(f"content: {too_call_content}")
+        # 渲染数据
+        tool_call_response = ft.Container(
+            ft.Markdown(value=too_call_content)
+        )
+
+        return tool_call_response
