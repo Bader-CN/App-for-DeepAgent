@@ -26,9 +26,9 @@ flet run -r main.py
 ```
 
 # Running effect
-软件初始界面
+工具调用
 ![初始效果](./example/deep_agent_1.png)
-支持多模态输入
+图片输入
 ![聊天对话](./example/deep_agent_2.png)
-模型设置界面
+设置界面
 ![设置界面](./example/deep_agent_3.png)
