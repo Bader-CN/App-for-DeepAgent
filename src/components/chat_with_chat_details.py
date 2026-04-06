@@ -199,11 +199,14 @@ class ChatDetails:
                 # User Message
                 if msg_dict.get("role") == "user":
                     cls.chat_details_messages.current.controls.append(cls.add_user_message_blk(msg_dict.get("content")))
+                # AI Thinking Message
+                elif msg_dict.get("role") == "assistant" and msg_dict.get("content") == "" and msg_dict.get("reasoning_content") not in ["", None]:
+                    cls.chat_details_messages.current.controls.append(cls.add_agent_think_message_blk(msg_dict.get("reasoning_content")))
                 # AI Message
                 elif msg_dict.get("role") == "assistant" and msg_dict.get("content") != "":
                     cls.chat_details_messages.current.controls.append(cls.add_agent_message_blk(msg_dict.get("content")))
                 # AI Tool Calls
-                elif msg_dict.get("role") == "assistant" and msg_dict.get("tool_calls") is not None:
+                elif msg_dict.get("role") == "assistant" and msg_dict.get("content") == "" and msg_dict.get("tool_calls") is not None:
                     for tool_call in msg_dict.get("tool_calls"):
                         new_tool_calls_message_blk = cls.add_tool_calls_message_blk(tool_call_id=tool_call.get("id"))
                         new_tool_calls_message_blk.content.title = cls.render_tool_calls_title(tool_call=tool_call)
@@ -315,6 +318,36 @@ class ChatDetails:
         return agent_msg_blk
     
     @classmethod
+    def add_agent_think_message_blk(cls, ai_think_message=""):
+        """
+        创建一个 think 消息块
+        """
+        # 字体风格
+        style_sheet = ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700))
+        # 消息块
+        agent_think_msg_blk = ft.Container(
+            ft.ExpansionTile(
+                title="Thinking",
+                controls=[
+                    ft.Container(
+                        ft.Markdown(
+                            value=ai_think_message,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            md_style_sheet=style_sheet,
+                        ),
+                        alignment=ft.Alignment.TOP_LEFT,
+                        padding=ft.Padding.symmetric(vertical=4, horizontal=10),
+                    ),
+                ],
+                tile_padding=5,
+                dense=True,
+            ),
+            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            # border=ft.Border.all(width=1),
+        )
+        return agent_think_msg_blk
+    
+    @classmethod
     def add_tool_calls_message_blk(cls, tool_call_id=None):
         """
         创建一个 tool calls 消息块
@@ -370,12 +403,15 @@ class ChatDetails:
         """
         # AI Message 相关
         new_agent_message_blk = None    # 最新的 AI Message 消息块
+        new_think_message_blk = None    # 最新的 AI Thinking Message 消息块
         need_create_agent_blk = True    # 标记位
+        need_create_think_blk = True    # 标记位: 思考内容
         # Tool Calls 相关
         tool_calls_blk = {}             # 记录消息块对象
         tool_calls_data = {}            # 保存工具调用数据
         # 临时数据
         ai_text_message = {"role": "assistant", "content": ""}
+        ai_think_message = {"role": "assistant", "content": "", "reasoning_content": ""}
         tool_messages = []
         
         # 注意 v2 版本: version="v2"
@@ -429,11 +465,26 @@ class ChatDetails:
                         # 处理消息块
                         new_agent_message_blk = cls.add_agent_message_blk()
                         cls.chat_details_messages.current.controls.append(new_agent_message_blk)
-                        need_create_agent_blk = False
+                        need_create_agent_blk = False   # 关闭 AI Message 标记位
+                        need_create_think_blk = True    # 开启 AI Thinking Message 标记位
                     # UI 渲染
                     new_agent_message_blk.content.value += token.content
                     # 消息存储
                     ai_text_message["content"] += token.content
+                
+                # 思考内容
+                elif token.additional_kwargs:
+                    # 首次出现
+                    if need_create_think_blk:
+                        # 处理消息块
+                        new_think_message_blk = cls.add_agent_think_message_blk()
+                        cls.chat_details_messages.current.controls.append(new_think_message_blk)
+                        need_create_agent_blk = True    # 开启 AI Message 标记位
+                        need_create_think_blk = False   # 关闭 AI Thinking Message 标记位
+                    # UI 渲染
+                    new_think_message_blk.content.controls[0].content.value += token.additional_kwargs.get("reasoning_content")
+                    # 消息存储
+                    ai_think_message["reasoning_content"] += token.additional_kwargs.get("reasoning_content")
                     
             # ToolMessage
             elif isinstance(token, ToolMessage):
@@ -464,8 +515,12 @@ class ChatDetails:
         cp_chat_details_data = deepcopy(cls.chat_details_data)
         cp_tool_calls_data = deepcopy(tool_calls_data)
         cp_ai_text_message = deepcopy(ai_text_message)
+        cp_ai_think_message = deepcopy(ai_think_message)
         cp_tool_messages = deepcopy(tool_messages)
-        # 2.如果 AI 尝试 tool_calls, 则创建对应的 {"role": "assistant", "content": "", "tool_calls": []} message
+        # 2.Thinking Message
+        if cp_ai_think_message.get("reasoning_content") != "":
+            cp_chat_details_data["messages"].append(cp_ai_think_message)
+        # 3.如果 AI 尝试 tool_calls, 则创建对应的 {"role": "assistant", "content": "", "tool_calls": []} message
         if cp_tool_calls_data:
             # 建立一个空的 AI ToolCalls Message
             ai_tool_calls_message = {"role": "assistant", "content": "", "tool_calls": []}
@@ -479,27 +534,29 @@ class ChatDetails:
                 })
             # 添加到历史信息里
             cp_chat_details_data["messages"].append(ai_tool_calls_message)
-        # 3.Tool Messages
+        # 4.Tool Messages
         if len(cp_tool_messages) > 0:
+            # extend(iterable): 将可迭代对象中的每个元素添加到列表末尾, 相当于多次 append
+            # 由于 tool_messages/cp_tool_messages 是列表, 所以此处应该使用 extend
             cp_chat_details_data["messages"].extend(cp_tool_messages)
-        # 4.AI 最终文本
+        # 5.AI 最终文本
         if cp_ai_text_message["content"] != "":
             cp_chat_details_data["messages"].append(cp_ai_text_message)
-        # 5.保持到 ChatData 中 (这里需要保存复制后的)
+        # 6.保持到 ChatData 中 (这里需要保存复制后的)
         app_chat_utils.save_chat_details_data_with_filename(cp_current_chat_data_filename, cp_chat_details_data)
-        # 6.删除 & 刷新 附件列表
+        # 7.删除 & 刷新 附件列表
         from src.components.chat_with_user_input import UserInput
         app_chat_utils.delete_tempfiles_with_prefix(prefix=cls.chat_list_control.data[:32])
         UserInput.update_attachments(prefix=cls.chat_list_control.data[:32])
         UserInput.switch_button_to_send()
         cls.page.update()
-        # 7.重新赋值 (如果此刻用户没有切换对话列表)
+        # 8.重新赋值 (如果此刻用户没有切换对话列表)
         if cls.chat_list_control.data == cp_current_chat_data_filename:
             cls.chat_details_data = cp_chat_details_data
             logger.debug(f"Continue saving chat data; file is: {cp_current_chat_data_filename}")
         else:
             logger.warning(f"User has switch chat list, Skip updating cls.chat_details_data")
-        # 8.总结标题
+        # 9.总结标题
         cls.page.run_task(cls.chat_details_title_summary, cp_current_chat_data_filename, cp_chat_details_data)
         
     @classmethod
