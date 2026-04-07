@@ -66,7 +66,7 @@ class MainView:
         """
         # Shift + Enter 且 UserInput.user_input_component 必须获得焦点
         if e.shift and e.key == "Enter" and UserInput.user_input_tag:
-            UserInput.send_user_input_message()
+            UserInput.send_user_input_message(page=self.page)
         # Ctrl + V
         elif e.ctrl and e.key == "V" and UserInput.user_input_tag:
             # 异步执行 (获取剪贴板里的图片内容)

@@ -1,5 +1,6 @@
 import os
 import ast
+import uuid
 import base64
 
 import flet as ft
@@ -198,40 +199,40 @@ class ChatDetails:
             for msg_dict in cls.chat_details_data["messages"]:
                 # User Message
                 if msg_dict.get("role") == "user":
-                    cls.chat_details_messages.current.controls.append(cls.add_user_message_blk(msg_dict.get("content")))
+                    user_blk = cls.add_blk_with_user(user_message=msg_dict)
                 # AI Thinking Message
-                elif msg_dict.get("role") == "assistant" and msg_dict.get("content") == "" and msg_dict.get("reasoning_content") not in ["", None]:
-                    cls.chat_details_messages.current.controls.append(cls.add_agent_think_message_blk(msg_dict.get("reasoning_content")))
-                # AI Message
-                elif msg_dict.get("role") == "assistant" and msg_dict.get("content") != "":
-                    cls.chat_details_messages.current.controls.append(cls.add_agent_message_blk(msg_dict.get("content")))
+                if msg_dict.get("role") == "assistant" and msg_dict.get("additional_kwargs").get("reasoning_content") is not None:
+                    lc_run_id = msg_dict.get("additional_kwargs").get("id")
+                    content=msg_dict.get("additional_kwargs").get("reasoning_content")
+                    cls.add_blk_with_think(lc_run_id=lc_run_id, content=content)
                 # AI Tool Calls
-                elif msg_dict.get("role") == "assistant" and msg_dict.get("content") == "" and msg_dict.get("tool_calls") is not None:
-                    for tool_call in msg_dict.get("tool_calls"):
-                        new_tool_calls_message_blk = cls.add_tool_calls_message_blk(tool_call_id=tool_call.get("id"))
-                        new_tool_calls_message_blk.content.title = cls.render_tool_calls_title(tool_call=tool_call)
-                        cls.chat_details_messages.current.controls.append(new_tool_calls_message_blk)
-                # Tools Message
-                elif msg_dict.get("role") == "tool":
-                    tool_call_id = msg_dict.get("tool_call_id")
-                    for blk in cls.chat_details_messages.current.controls:
-                        if isinstance(blk.content, ft.ExpansionTile):
-                            if blk.content.data == tool_call_id:
-                                # blk.content.controls.clear()
-                                blk.content.controls.append(cls.render_tool_calls_content(tool_message_or_dict=msg_dict))
-
+                if msg_dict.get("role") == "assistant" and msg_dict.get("tool_calls") not in ["", [], None]:
+                    tool_calls = msg_dict.get("tool_calls")
+                    additional_kwargs = msg_dict.get("additional_kwargs")
+                    cls.add_blk_with_tool_calls(tool_calls=tool_calls, additional_kwargs=additional_kwargs)
+                # Tool Message
+                if msg_dict.get("role") == "tool":
+                    cls.update_blk_with_tool_calls(tool_message=msg_dict)
+                # AI Message
+                if msg_dict.get("role") == "assistant" and msg_dict.get("content").strip() not in ["", None]:
+                    lc_run_id = msg_dict.get("additional_kwargs").get("id")
+                    content = msg_dict.get("content")
+                    cls.add_blk_with_agent(lc_run_id=lc_run_id, content=content)
     
     @classmethod
-    def add_user_message_blk(cls, user_message_content):
+    def add_blk_with_user(cls, user_message: dict):
         """
         创建一个 user message 消息块
 
         Args:
-        - user_message_content: 列表类型, 是完整用户消息的一部分内容 [{"type": "text", "text":user_message_by_test}]
+        - user_message
         """
-        # 需要考虑多模态
+        # 多模态/抽取内容
         render_md_text = ""
+        lc_run_id = user_message.get("additional_kwargs").get("id")
+        user_message_content = user_message.get("content")
         images_list = []
+
         for data in user_message_content:
             # 文本内容
             if data.get("type") == "text":
@@ -266,8 +267,8 @@ class ChatDetails:
                         ],
                     ),
                 ],
-
-            )
+            ),
+            data={"lc_run_id": lc_run_id, "type": "user_message"},
         )
         # 添加图片信息
         if len(images_list) > 0:
@@ -292,16 +293,57 @@ class ChatDetails:
                         ),
                     )
                 )
-        return user_msg_blk
-    
+        cls.chat_details_messages.current.controls.append(user_msg_blk)        
+
     @classmethod
-    def add_agent_message_blk(cls, ai_message=""):
+    def add_blk_with_think(cls, lc_run_id, content=""):
         """
-        创建一个 agent message 消息块
+        添加一个 think 消息块
+
+        Args:
+        - lc_run_id:    LangChain 流式结果的 id, 格式为 "lc_run--****"
+        - content:      文本内容
+        """
+        # 字体风格
+        style_sheet = ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700))
+        # 消息块
+        agent_think_msg_blk = ft.Container(
+            ft.ExpansionTile(
+                title="Thinking",
+                controls=[
+                    ft.Container(
+                        ft.Markdown(
+                            value=content,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            md_style_sheet=style_sheet,
+                        ),
+                        alignment=ft.Alignment.TOP_LEFT,
+                        padding=ft.Padding.symmetric(vertical=4, horizontal=10),
+                    ),
+                ],
+                tile_padding=5,
+                dense=True,
+            ),
+            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            data={"lc_run_id": lc_run_id, "type": "ai_think"}
+        )
+        # 添加列表
+        cls.chat_details_messages.current.controls.append(agent_think_msg_blk)
+        # 返回消息块
+        return agent_think_msg_blk
+
+    @classmethod
+    def add_blk_with_agent(cls, lc_run_id, content=""):
+        """
+        添加一个 agent message 消息块
+
+        Args:
+        - lc_run_id:    LangChain 流式结果的 id, 格式为 "lc_run--****"
+        - content:      文本内容
         """
         agent_msg_blk = ft.Container(
             ft.Markdown(
-                value=ai_message,
+                value=content,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.GITHUB,
@@ -314,70 +356,144 @@ class ChatDetails:
             border_radius=5,
             padding=ft.Padding.symmetric(vertical=2, horizontal=5),
             margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            data={"lc_run_id": lc_run_id, "type": "ai_message"}
         )
+        # 添加列表
+        cls.chat_details_messages.current.controls.append(agent_msg_blk)
+        # 返回消息块
         return agent_msg_blk
     
     @classmethod
-    def add_agent_think_message_blk(cls, ai_think_message=""):
+    def add_blk_with_tool_calls(cls, tool_calls:list, additional_kwargs:dict):
         """
-        创建一个 think 消息块
-        """
-        # 字体风格
-        style_sheet = ft.MarkdownStyleSheet(p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700))
-        # 消息块
-        agent_think_msg_blk = ft.Container(
-            ft.ExpansionTile(
-                title="Thinking",
-                controls=[
-                    ft.Container(
-                        ft.Markdown(
-                            value=ai_think_message,
-                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                            md_style_sheet=style_sheet,
-                        ),
-                        alignment=ft.Alignment.TOP_LEFT,
-                        padding=ft.Padding.symmetric(vertical=4, horizontal=10),
-                    ),
-                ],
-                tile_padding=5,
-                dense=True,
-            ),
-            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
-            # border=ft.Border.all(width=1),
-        )
-        return agent_think_msg_blk
-    
-    @classmethod
-    def add_tool_calls_message_blk(cls, tool_call_id=None):
-        """
-        创建一个 tool calls 消息块
+        创建并添加一个 "工具调用" 消息块
 
         Args:
-        - tool_call_id:     会基于 Tool Message 的 tool_call_id 来渲染内容
+        - tool_calls:           AIMessage 中的 tool_calls 列表
+        - additional_kwargs:    AIMessage 中的 additional_kwargs 字典
         """
-        tool_calls_blk = ft.Container(
-            ft.ExpansionTile(
-                # 这两项为空, 先占位, 后续在添加和调整
-                title="",
-                controls=[],
-                # https://flet.dev/docs/controls/expansiontile/#flet.ExpansionTile.tile_padding
-                # 不设置默认为 ft.Padding.symmetric(horizontal=16.0)
-                tile_padding=5,
-                dense=True,
-                data=tool_call_id,
-            ),
-            # padding=ft.Padding.symmetric(vertical=2, horizontal=5),
-            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+        for tool_call in tool_calls:
+            # 调试日志
+            logger.trace(tool_call)
+            # 抽取数据
+            lc_run_id = additional_kwargs.get("id")
+            tool_call_id = tool_call.get("id")
+            tool_call_name = tool_call.get("name")
+            tool_call_args = tool_call.get("args")
+            # 实际内容
+            tool_call_title = ft.Row([], spacing=5)
+            for idx, call_value in enumerate([tool_call_id, tool_call_name, tool_call_args]):
+                if idx == 0:
+                    bgcolor = ft.Colors.GREY
+                elif idx == 1:
+                    bgcolor = ft.Colors.GREEN
+                elif idx == 2:
+                    bgcolor = ft.Colors.BLUE
+                tool_call_text = ft.Container(
+                    ft.Text(
+                        value=call_value,
+                        color=ft.Colors.WHITE,
+                        font_family="Consolas",
+                    ),
+                    border_radius=5,
+                    bgcolor=bgcolor,
+                    padding=ft.Padding.symmetric(horizontal=4, vertical=2),
+                )
+                tool_call_title.controls.append(tool_call_text)
+            # 组合控件
+            tool_call_blk = ft.Container(
+                ft.ExpansionTile(
+                    title=tool_call_title,
+                    # 空着占位
+                    controls=[],
+                    # https://flet.dev/docs/controls/expansiontile/#flet.ExpansionTile.tile_padding
+                    # 不设置默认为 ft.Padding.symmetric(horizontal=16.0)
+                    tile_padding=5,
+                    dense=True,
+                ),
+                # 对该组件做标记, 用于未来的定位和回滚
+                data={"tool_call_id":tool_call_id, "lc_run_id": lc_run_id, "type": "ai_tool_call"},
+                margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+                # padding=ft.Padding.symmetric(vertical=2, horizontal=5),
+            )
+            # 添加进 chat_details_messages 中
+            cls.chat_details_messages.current.controls.append(tool_call_blk)
+
+    @classmethod
+    def update_blk_with_think(cls, think_msg_blk, content):
+        """
+        基于已有的 think message 消息块 更新内容
+
+        Args:
+        - think_msg_blk: Flet think message 的消息控件
+        - content:       最新的流式内容
+        """
+        think_msg_blk.content.controls[0].content.value += content
+
+    @classmethod
+    def update_blk_with_agent(cls, agent_msg_blk, content):
+        """
+        基于已有的 agent message 消息块 更新内容
+
+        Args:
+        - agent_msg_blk: Flet agent message 的消息控件
+        - content:       最新的流式内容
+        """
+        agent_msg_blk.content.value += content
+
+    @classmethod
+    def update_blk_with_tool_calls(cls, tool_message:dict):
+        """
+        基于 tool_message 显示更新内容
+        """
+        logger.trace(tool_message)
+        # 抽取数据
+        tool_call_id = tool_message.get("tool_call_id")
+        tool_call_name = tool_message.get("name")
+        tool_call_content = tool_message.get("content")
+        tool_call_status = tool_message.get("status")
+        # 处理数据
+        if tool_call_content in ["", "[]", None]:
+            tool_call_content = ""
+        # 优化显示内容
+        render_markdown = ""
+        # 文件操作相关
+        if tool_call_name in ["ls", "glob"] and tool_call_content != "":
+            # 转换成列表, 比 eval() 安全
+            # https://docs.python.org/zh-cn/3.14/library/ast.html#ast.literal_eval
+            tool_call_content = ast.literal_eval(tool_call_content)
+            for item_content in tool_call_content:
+                render_markdown += item_content + "\n\n"
+        # 最后兜底, 原样显示
+        else:
+            render_markdown = tool_call_content
+        # 组装控件
+        style_sheet = ft.MarkdownStyleSheet(
+            p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700),
         )
-        return tool_calls_blk
+        tool_call_response = ft.Container(
+            ft.Markdown(
+                value=render_markdown,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                md_style_sheet=style_sheet,
+            ),
+            alignment=ft.Alignment.TOP_LEFT,
+            padding=ft.Padding.symmetric(vertical=4, horizontal=10),
+        )
+        # 刷新 Tool Calls 内容
+        controls = cls.chat_details_messages.current.controls
+        tool_call_container = next((x for x in reversed(controls) if x.data.get("tool_call_id") == tool_call_id), None)
+        if tool_call_container is not None:
+            tool_call_container.content.controls.append(tool_call_response)
     
     @classmethod
-    def send_user_message(cls, user_message_by_test):
+    def send_user_message(cls, user_message_by_text):
         """
         发送用户内容
         """
         # 构建完整的用户消息数据
-        user_message = {"role": "user", "content":[{"type": "text", "text": user_message_by_test}]}
+        id = str(uuid.uuid4())
+        user_message = {"role": "user", "content":[{"type": "text", "text": user_message_by_text}], "additional_kwargs": {"id": id}}
         prefix = cls.chat_list_control.data[:32]
         images = app_chat_utils.get_images_with_temp(session_prefix=prefix)
         # 处理图片
@@ -386,8 +502,8 @@ class ChatDetails:
                 image_path = os.path.abspath(os.path.join(app_chat_utils.temp_dir, image))
                 # https://docs.langchain.com/oss/python/langchain/messages#multimodal
                 user_message.get("content").append({"type": "image", "url": app_chat_utils.file_to_base64_uri(image_path)})
-        # UI 部分: 只传递 content 部分内容
-        cls.chat_details_messages.current.controls.append(cls.add_user_message_blk(user_message.get("content")))
+        # UI 部分
+        cls.add_blk_with_user(user_message=user_message)
         # 添加到 chat_details_data["messages"] 中
         cls.chat_details_data["messages"].append(user_message)
         # 更新界面
@@ -406,264 +522,122 @@ class ChatDetails:
         new_think_message_blk = None    # 最新的 AI Thinking Message 消息块
         need_create_agent_blk = True    # 标记位
         need_create_think_blk = True    # 标记位: 思考内容
-        # Tool Calls 相关
-        tool_calls_blk = {}             # 记录消息块对象
-        tool_calls_data = {}            # 保存工具调用数据
-        # 临时数据
-        ai_text_message = {"role": "assistant", "content": ""}
-        ai_think_message = {"role": "assistant", "content": "", "reasoning_content": ""}
-        tool_messages = []
+        # 所有待保存的消息 & 初始消息计数
+        all_tmp_messages = []
         
         # 注意 v2 版本: version="v2"
         # https://docs.langchain.com/oss/python/deepagents/streaming#v2-streaming-format
-        async for chunk in app_agent.agent_main.astream(input={"messages": cls.chat_details_data["messages"]}, stream_mode=["messages"], version="v2"):
-            # v2 版本的 chunk: {"type":<stream_mode>, "data":(<token>, <metadata>)}
-            token = chunk["data"][0]
-            metadata = chunk["data"][1]
-
+        # v2 版本的 chunk: {"type":<stream_mode>, 'ns':(), "data":(<token>, <metadata>)}
+        async for chunk in app_agent.agent_main.astream(input={"messages": cls.chat_details_data["messages"]}, stream_mode=["messages", "updates"], version="v2"):
             # 此标记位为 True 时停止输出
             if cls.need_stop_response:
                 logger.warning(f"AI response was manually interrupted.")
                 from src.components.chat_with_user_input import UserInput
                 UserInput.switch_button_to_send()
                 break
-            
-            # AIMessage
-            if isinstance(token, AIMessageChunk):
-                # 工具调用
-                if token.tool_call_chunks:
-                    # 循环遍历每一个 tool_call 字典
-                    for tool_call in token.tool_call_chunks:
-                        # 情况1: 去掉没有 index 的特殊情况
-                        index = tool_call.get("index")
-                        if not isinstance(index, int):
-                            logger.warning(f"tool_call index not int: {index}")
-                            continue
-                        # 情况2: index 没有在 tool_calls_blk 里
-                        if index not in tool_calls_blk:
-                            # 创建一个新的 tool_calls 消息块
-                            new_tool_calls_blk = cls.add_tool_calls_message_blk()
-                            new_tool_calls_blk.content.title =  cls.render_tool_calls_title(tool_call=tool_call)
-                            # 使用字典记录该 tool_calls 消息块
-                            tool_calls_blk[index] = new_tool_calls_blk
-                            # 使用字典记录该 tool_calls 的数据
-                            tool_calls_data[index] = {}
-                            cls.merge_tool_calls_data(tool_calls_data[index], tool_call)
-                            # 添加进 chat_details_messages 的 ft.Column 中
-                            cls.chat_details_messages.current.controls.append(new_tool_calls_blk)
-                        # 情况3: index 在 tool_calls_blk 里
-                        else:
-                            cls.merge_tool_calls_data(tool_calls_data[index], tool_call)
-                            tool_calls_blk[index].content.title = cls.render_tool_calls_title(tool_call=tool_calls_data[index])
-                        # 调试日志
-                        logger.debug(f"token.tool_call_chunks: {tool_call}")
 
-                # 普通文本
-                elif token.content:
-                    # 首次出现
-                    if need_create_agent_blk:
-                        # 处理消息块
-                        new_agent_message_blk = cls.add_agent_message_blk()
-                        cls.chat_details_messages.current.controls.append(new_agent_message_blk)
-                        need_create_agent_blk = False   # 关闭 AI Message 标记位
-                        need_create_think_blk = True    # 开启 AI Thinking Message 标记位
-                    # UI 渲染
-                    new_agent_message_blk.content.value += token.content
-                    # 消息存储
-                    ai_text_message["content"] += token.content
-                
-                # 思考内容
-                elif token.additional_kwargs:
-                    # 首次出现
-                    if need_create_think_blk:
-                        # 处理消息块
-                        new_think_message_blk = cls.add_agent_think_message_blk()
-                        cls.chat_details_messages.current.controls.append(new_think_message_blk)
-                        need_create_agent_blk = True    # 开启 AI Message 标记位
-                        need_create_think_blk = False   # 关闭 AI Thinking Message 标记位
-                    # UI 渲染
-                    new_think_message_blk.content.controls[0].content.value += token.additional_kwargs.get("reasoning_content")
-                    # 消息存储
-                    ai_think_message["reasoning_content"] += token.additional_kwargs.get("reasoning_content")
-                    
-            # ToolMessage
-            elif isinstance(token, ToolMessage):
-                # 工具结果
-                for idx, tool_call in tool_calls_data.items():
-                    if tool_call.get("id") == token.tool_call_id:
-                        # UI 渲染
-                        # tool_calls_blk[idx].content.controls.clear()
-                        tool_calls_blk[idx].content.controls.append(cls.render_tool_calls_content(tool_message_or_dict=token))
-                        # 消息存储
-                        tool_messages.append({
-                            "role": "tool",
-                            "name": token.name,
-                            "tool_call_id": token.tool_call_id,
-                            "content": token.content
-                        })
-                        # 调试日志
-                        logger.debug(f"ToolMessage_{idx}: {tool_call}")
-                        break
+            # Main Agent Message
+            elif chunk.get("ns") == ():
+                # 每个步骤完成时: 消息类型为 updates
+                if chunk["type"] == "updates":
+                    # 重置标记位
+                    need_create_agent_blk = True
+                    need_create_think_blk = True
+                    # 检查 AI Message 是否为全空
+                    controls = cls.chat_details_messages.current.controls
+                    ai_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "ai_message"), None)
+                    if ai_message_container is not None and ai_message_container.content.value.strip() == "":
+                        controls.remove(ai_message_container)
+                        cls.page.update()
+                        logger.warning("all empty content detected; removing AI Message block.")
+                    # AIMessage
+                    if chunk["data"].get("model") is not None:
+                        # 保存到 all_tmp_messages
+                        messages = chunk["data"].get("model").get("messages")
+                        for ai_msg in messages:
+                            additional_kwargs = ai_msg.additional_kwargs
+                            additional_kwargs["id"] = ai_msg.id
+                            additional_kwargs["ns"] = ()
+                            all_tmp_messages.append({
+                                # AI Response Message
+                                "role": "assistant", "content": ai_msg.content, 
+                                # AI Tool Calls
+                                "tool_calls": ai_msg.tool_calls, "invalid_tool_calls":ai_msg.invalid_tool_calls, 
+                                # AI Thinking & ID & NS
+                                "additional_kwargs": additional_kwargs,
+                            })
+                        # 渲染界面: Tool_Calls
+                        if ai_msg.tool_calls:
+                            cls.add_blk_with_tool_calls(tool_calls=ai_msg.tool_calls, additional_kwargs=ai_msg.additional_kwargs)
+
+                    # ToolMessage
+                    elif chunk["data"].get("tools") is not None:
+                        # 保存到 all_tmp_messages
+                        messages = chunk["data"].get("tools").get("messages")
+                        for tool_msg in messages:
+                            additional_kwargs = tool_msg.additional_kwargs
+                            additional_kwargs["id"] = tool_msg.id
+                            additional_kwargs["ns"] = ()
+                            tool_message = {
+                                "role": "tool", "type": "tool",
+                                "content": tool_msg.content,
+                                "name": tool_msg.name,
+                                "tool_call_id": tool_msg.tool_call_id,
+                                # 'success', 'error'
+                                "status": "success",
+                                "additional_kwargs": additional_kwargs,
+                            }
+                            all_tmp_messages.append(tool_message)
+                        # 渲染界面: Tool_Calls
+                        cls.update_blk_with_tool_calls(tool_message=tool_message)
+
+                # 流式输出: 消息类型为 messages
+                else:
+                    if isinstance(chunk.get("data")[0], AIMessageChunk):
+                        # 思考文本
+                        if chunk.get("data")[0].additional_kwargs.get("reasoning_content"):
+                            if need_create_think_blk:
+                                new_think_message_blk = cls.add_blk_with_think(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
+                                need_create_agent_blk = True
+                                need_create_think_blk = False
+                            cls.update_blk_with_think(think_msg_blk=new_think_message_blk, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
+                        # 普通文本
+                        elif chunk.get("data")[0].content:
+                            if need_create_agent_blk:
+                                new_agent_message_blk = cls.add_blk_with_agent(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].content)
+                                need_create_agent_blk = False
+                                need_create_think_blk = True
+                            cls.update_blk_with_agent(agent_msg_blk=new_agent_message_blk, content=chunk.get("data")[0].content)
+                        # 其余内容
+                        else:
+                            pass
+            # Sub Agent Message
+            else:
+                pass
             
             # 渲染/滚动界面
             await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
             cls.page.update()
         
-        # 流式对话后统一处理 messages
         # 1.复制一份数据, 防止用户此刻点击别的会话
         cp_current_chat_data_filename = deepcopy(cls.current_chat_data_filename)
         cp_chat_details_data = deepcopy(cls.chat_details_data)
-        cp_tool_calls_data = deepcopy(tool_calls_data)
-        cp_ai_text_message = deepcopy(ai_text_message)
-        cp_ai_think_message = deepcopy(ai_think_message)
-        cp_tool_messages = deepcopy(tool_messages)
-        # 2.Thinking Message
-        if cp_ai_think_message.get("reasoning_content") != "":
-            cp_chat_details_data["messages"].append(cp_ai_think_message)
-        # 3.如果 AI 尝试 tool_calls, 则创建对应的 {"role": "assistant", "content": "", "tool_calls": []} message
-        if cp_tool_calls_data:
-            # 建立一个空的 AI ToolCalls Message
-            ai_tool_calls_message = {"role": "assistant", "content": "", "tool_calls": []}
-            # 补全该 AI ToolCalls Message
-            for index in sorted(cp_tool_calls_data.keys()):
-                tc = cp_tool_calls_data[index]
-                ai_tool_calls_message["tool_calls"].append({
-                    "id": tc.get("id"),
-                    "type": "function",
-                    "function": {"name": tc.get("name", ""), "arguments": tc.get("args", "")},
-                })
-            # 添加到历史信息里
-            cp_chat_details_data["messages"].append(ai_tool_calls_message)
-        # 4.Tool Messages
-        if len(cp_tool_messages) > 0:
-            # extend(iterable): 将可迭代对象中的每个元素添加到列表末尾, 相当于多次 append
-            # 由于 tool_messages/cp_tool_messages 是列表, 所以此处应该使用 extend
-            cp_chat_details_data["messages"].extend(cp_tool_messages)
-        # 5.AI 最终文本
-        if cp_ai_text_message["content"] != "":
-            cp_chat_details_data["messages"].append(cp_ai_text_message)
-        # 6.保持到 ChatData 中 (这里需要保存复制后的)
+        cp_all_tmp_messages = deepcopy(all_tmp_messages)
+        # 2.整合数据
+        cp_chat_details_data["messages"].extend(cp_all_tmp_messages)
+        # 3.保持到 ChatData 中 (这里需要保存复制后的)
         app_chat_utils.save_chat_details_data_with_filename(cp_current_chat_data_filename, cp_chat_details_data)
-        # 7.删除 & 刷新 附件列表
+        # 4.删除 & 刷新 附件列表
         from src.components.chat_with_user_input import UserInput
         app_chat_utils.delete_tempfiles_with_prefix(prefix=cls.chat_list_control.data[:32])
         UserInput.update_attachments(prefix=cls.chat_list_control.data[:32])
         UserInput.switch_button_to_send()
         cls.page.update()
-        # 8.重新赋值 (如果此刻用户没有切换对话列表)
+        # 5.重新赋值 (如果此刻用户没有切换对话列表)
         if cls.chat_list_control.data == cp_current_chat_data_filename:
             cls.chat_details_data = cp_chat_details_data
-            logger.debug(f"Continue saving chat data; file is: {cp_current_chat_data_filename}")
+            logger.debug(f"chat history has been saved: {cp_current_chat_data_filename}")
         else:
-            logger.warning(f"User has switch chat list, Skip updating cls.chat_details_data")
-        # 9.总结标题
-        cls.page.run_task(cls.chat_details_title_summary, cp_current_chat_data_filename, cp_chat_details_data)
-        
-    @classmethod
-    def merge_tool_calls_data(cls, main_data: dict, chunk_data: dict):
-        """
-        合并流式返回的 tool_call chunk
-
-        Args:
-        - main_data:    完整的数据字典
-        - chunk_daya:   数据片段
-        """
-        for k, v in chunk_data.items():
-            if v in [None, "", [], {}]:
-                continue
-
-            # 如果 args 是分片字符串, 做拼接
-            if k == "args" and isinstance(v, str) and isinstance(main_data.get("args"), str):
-                main_data["args"] += v
-            else:
-                main_data[k] = v
-
-    @classmethod
-    def render_tool_calls_title(cls, tool_call: dict):
-        """
-        基于 Tool Calls 字典来渲染显示内容
-        """
-        logger.debug(f"Tool Call by Title: {tool_call}")
-        # 抽取数据: 运行期间
-        if tool_call.get("function") is None:
-            tool_call_id = tool_call.get("id")
-            tool_call_name = tool_call.get("name")
-            tool_call_args = tool_call.get("args")
-        # 抽取数据: 从文件里读取数据
-        else:
-            tool_call_id = tool_call.get("id")
-            tool_call_name = tool_call.get("function").get("name")
-            tool_call_args = tool_call.get("function").get("arguments")            
-        # 组装显示内容
-        tool_call_title = ft.Row([], spacing=5)
-        for idx, call_value in enumerate([tool_call_id, tool_call_name, tool_call_args]):
-            if call_value is not None:
-                if idx == 0:
-                    bgcolor = ft.Colors.GREY
-                elif idx == 1:
-                    bgcolor = ft.Colors.GREEN
-                elif idx == 2:
-                    bgcolor = ft.Colors.BLUE
-                tool_call_text = ft.Container(
-                    ft.Text(
-                        value=call_value,
-                        color=ft.Colors.WHITE,
-                        font_family="Consolas",
-                    ),
-                    bgcolor=bgcolor,
-                    padding=ft.Padding.symmetric(horizontal=4, vertical=2),
-                    border_radius=5,
-                )
-                tool_call_title.controls.append(tool_call_text)
-        # 返回 tool_call_title 对象
-        return tool_call_title
-
-    @classmethod
-    def render_tool_calls_content(cls, tool_message_or_dict):
-        """
-        基于 ToolMessage 或 Dict 渲染显示内容
-        """
-        # 抽取数据: 运行期间
-        if isinstance(tool_message_or_dict, ToolMessage):
-            tool_call_id = tool_message_or_dict.tool_call_id
-            tool_call_name = tool_message_or_dict.name
-            too_call_content = tool_message_or_dict.content
-        # 抽取数据: 从文件里读取数据
-        elif isinstance(tool_message_or_dict, dict):
-            tool_call_id = tool_message_or_dict.get("tool_call_id")
-            tool_call_name = tool_message_or_dict.get("name")
-            too_call_content = tool_message_or_dict.get("content")
-        # 处理数据
-        if too_call_content in ["", "[]", None]:
-            too_call_content = ""
-
-        # 优化显示内容
-        render_markdown = ""
-        # 文件操作相关
-        if tool_call_name in ["ls", "glob"] and too_call_content != "":
-            # 转换成列表, 比 eval() 安全
-            # https://docs.python.org/zh-cn/3.14/library/ast.html#ast.literal_eval
-            too_call_content = ast.literal_eval(too_call_content)
-            for item_content in too_call_content:
-                render_markdown += item_content + "\n\n"
-        # 最后兜底, 原样显示
-        else:
-            render_markdown = too_call_content
-            logger.debug(f"Tool Call by Content: {type(tool_message_or_dict)} | {tool_message_or_dict}")
-
-        # 组装控件
-        style_sheet = ft.MarkdownStyleSheet(
-            p_text_style=ft.TextStyle(size=12, font_family="Consolas", color=ft.Colors.GREY_700),
-        )
-        tool_call_response = ft.Container(
-            ft.Markdown(
-                value=render_markdown,
-                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                # code_theme=ft.MarkdownCodeTheme.GITHUB,
-                md_style_sheet=style_sheet,
-            ),
-            alignment=ft.Alignment.TOP_LEFT,
-            padding=ft.Padding.symmetric(vertical=4, horizontal=10),
-            # border=ft.Border.all(width=1),
-        )
-        return tool_call_response
+            logger.warning(f"switch to view chatlist, Skip updating <cls.chat_details_data>")
+        # 6.总结标题
+        cls.page.run_task(cls.chat_details_title_summary, cp_current_chat_data_filename, cp_chat_details_data)        

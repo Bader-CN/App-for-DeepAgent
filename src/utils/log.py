@@ -4,3 +4,4 @@ from loguru import logger
 
 logger.remove()
 logger.add(sys.stderr, level="DEBUG")
+# logger.add(sys.stderr, level="TRACE")

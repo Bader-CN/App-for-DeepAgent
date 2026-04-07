@@ -77,21 +77,26 @@ class UserInput:
         return user_input_component
     
     @classmethod
-    def send_user_input_message(cls, e=None):
+    def send_user_input_message(cls, e=None, page=None):
         """
         将用户输入的 message 发送给 LLM
         """
         # 如果输入内容为非空 / 或按钮为 Send 
         if cls.user_input.current.value not in ["", None] and cls.user_input_panel.current.controls[-1].data == "Send":
             ChatDetails.need_stop_response = False
-            ChatDetails.send_user_message(user_message_by_test=cls.user_input.current.value)
-            cls.user_input.current.value = None
+            ChatDetails.send_user_message(user_message_by_text=cls.user_input.current.value)
+            cls.user_input.current.value = ""
             cls.switch_button_to_cancel()
         else:
             if cls.user_input.current.value in ["", None]:
                 logger.warning("user input is empty, will be ignore it.")
             if cls.user_input_panel.current.controls[-1].data == "Cancel":
                 logger.warning("duplicate message detected, will be ignore it.")
+        # 刷新界面
+        if page:
+            page.update()
+        else:
+            e.page.update()
 
     @classmethod
     def switch_user_input_tag(cls, e):
