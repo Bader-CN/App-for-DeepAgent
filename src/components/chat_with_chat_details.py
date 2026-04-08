@@ -418,6 +418,31 @@ class ChatDetails:
             )
             # 添加进 chat_details_messages 中
             cls.chat_details_messages.current.controls.append(tool_call_blk)
+    
+    @classmethod
+    def add_blk_with_error(cls, content):
+        """
+        添加一个 error 消息块
+        """
+        # 生成一个 uuid
+        id = str(uuid.uuid4())
+        # 错误消息块
+        error_blk = ft.Container(
+            ft.ListTile(
+                title="Error",
+                subtitle=content,
+                bgcolor=ft.Colors.RED_50,
+                # trailing=ft.Icon(ft.Icons.CANCEL),
+                is_three_line=True,
+                content_padding=5,
+            ),
+            data={"lc_run_id": id, "type": "error"},
+            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            # border=ft.Border.all(width=1),
+            border_radius=5,
+        )
+        # 添加进 chat_details_messages 中
+        cls.chat_details_messages.current.controls.append(error_blk)
 
     @classmethod
     def update_blk_with_think(cls, think_msg_blk, content):
@@ -503,11 +528,15 @@ class ChatDetails:
                 # https://docs.langchain.com/oss/python/langchain/messages#multimodal
                 user_message.get("content").append({"type": "image", "url": app_chat_utils.file_to_base64_uri(image_path)})
         # UI 部分
+        # 更新前会检查最后一个消息组件是否为错误消息块, 如果是则会删掉
+        last_control = cls.chat_details_messages.current.controls[-1]
+        if last_control.data is not None and last_control.data.get("type") == "error":
+            del cls.chat_details_messages.current.controls[-1]
         cls.add_blk_with_user(user_message=user_message)
         # 添加到 chat_details_data["messages"] 中
         cls.chat_details_data["messages"].append(user_message)
         # 更新界面
-        # cls.page.update()
+        cls.page.update()
         # 发送 API 请求
         # https://docs.flet.dev/controls/page/?h=run_ta#flet.Page.render_views
         cls.page.run_task(cls.response_agent_message)
@@ -525,99 +554,107 @@ class ChatDetails:
         # 所有待保存的消息 & 初始消息计数
         all_tmp_messages = []
         
-        # 注意 v2 版本: version="v2"
-        # https://docs.langchain.com/oss/python/deepagents/streaming#v2-streaming-format
-        # v2 版本的 chunk: {"type":<stream_mode>, 'ns':(), "data":(<token>, <metadata>)}
-        async for chunk in app_agent.agent_main.astream(input={"messages": cls.chat_details_data["messages"]}, stream_mode=["messages", "updates"], version="v2"):
-            # 此标记位为 True 时停止输出
-            if cls.need_stop_response:
-                logger.warning(f"AI response was manually interrupted.")
-                from src.components.chat_with_user_input import UserInput
-                UserInput.switch_button_to_send()
-                break
+        try:
+            # 注意 v2 版本: version="v2"
+            # https://docs.langchain.com/oss/python/deepagents/streaming#v2-streaming-format
+            # v2 版本的 chunk: {"type":<stream_mode>, 'ns':(), "data":(<token>, <metadata>)}
+            async for chunk in app_agent.agent_main.astream(input={"messages": cls.chat_details_data["messages"]}, stream_mode=["messages", "updates"], version="v2"):
+                # 此标记位为 True 时停止输出
+                if cls.need_stop_response:
+                    logger.warning(f"AI response was manually interrupted.")
+                    from src.components.chat_with_user_input import UserInput
+                    UserInput.switch_button_to_send()
+                    break
+                
+                # Main Agent Message
+                elif chunk.get("ns") == ():
+                    # 每个步骤完成时: 消息类型为 updates
+                    if chunk["type"] == "updates":
+                        # 重置标记位
+                        need_create_agent_blk = True
+                        need_create_think_blk = True
+                        # 检查 AI Message 是否为全空
+                        controls = cls.chat_details_messages.current.controls
+                        ai_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "ai_message"), None)
+                        if ai_message_container is not None and ai_message_container.content.value.strip() == "":
+                            controls.remove(ai_message_container)
+                            cls.page.update()
+                            logger.warning("all empty content detected; removing AI Message block.")
+                        # AIMessage
+                        if chunk["data"].get("model") is not None:
+                            # 保存到 all_tmp_messages
+                            messages = chunk["data"].get("model").get("messages")
+                            for ai_msg in messages:
+                                additional_kwargs = ai_msg.additional_kwargs
+                                additional_kwargs["id"] = ai_msg.id
+                                additional_kwargs["ns"] = ()
+                                all_tmp_messages.append({
+                                    # AI Response Message
+                                    "role": "assistant", "content": ai_msg.content, 
+                                    # AI Tool Calls
+                                    "tool_calls": ai_msg.tool_calls, "invalid_tool_calls":ai_msg.invalid_tool_calls, 
+                                    # AI Thinking & ID & NS
+                                    "additional_kwargs": additional_kwargs,
+                                })
+                            # 渲染界面: Tool_Calls
+                            if ai_msg.tool_calls:
+                                cls.add_blk_with_tool_calls(tool_calls=ai_msg.tool_calls, additional_kwargs=ai_msg.additional_kwargs)
 
-            # Main Agent Message
-            elif chunk.get("ns") == ():
-                # 每个步骤完成时: 消息类型为 updates
-                if chunk["type"] == "updates":
-                    # 重置标记位
-                    need_create_agent_blk = True
-                    need_create_think_blk = True
-                    # 检查 AI Message 是否为全空
-                    controls = cls.chat_details_messages.current.controls
-                    ai_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "ai_message"), None)
-                    if ai_message_container is not None and ai_message_container.content.value.strip() == "":
-                        controls.remove(ai_message_container)
-                        cls.page.update()
-                        logger.warning("all empty content detected; removing AI Message block.")
-                    # AIMessage
-                    if chunk["data"].get("model") is not None:
-                        # 保存到 all_tmp_messages
-                        messages = chunk["data"].get("model").get("messages")
-                        for ai_msg in messages:
-                            additional_kwargs = ai_msg.additional_kwargs
-                            additional_kwargs["id"] = ai_msg.id
-                            additional_kwargs["ns"] = ()
-                            all_tmp_messages.append({
-                                # AI Response Message
-                                "role": "assistant", "content": ai_msg.content, 
-                                # AI Tool Calls
-                                "tool_calls": ai_msg.tool_calls, "invalid_tool_calls":ai_msg.invalid_tool_calls, 
-                                # AI Thinking & ID & NS
-                                "additional_kwargs": additional_kwargs,
-                            })
-                        # 渲染界面: Tool_Calls
-                        if ai_msg.tool_calls:
-                            cls.add_blk_with_tool_calls(tool_calls=ai_msg.tool_calls, additional_kwargs=ai_msg.additional_kwargs)
+                        # ToolMessage
+                        elif chunk["data"].get("tools") is not None:
+                            # 保存到 all_tmp_messages
+                            messages = chunk["data"].get("tools").get("messages")
+                            for tool_msg in messages:
+                                additional_kwargs = tool_msg.additional_kwargs
+                                additional_kwargs["id"] = tool_msg.id
+                                additional_kwargs["ns"] = ()
+                                tool_message = {
+                                    "role": "tool", "type": "tool",
+                                    "content": tool_msg.content,
+                                    "name": tool_msg.name,
+                                    "tool_call_id": tool_msg.tool_call_id,
+                                    # 'success', 'error'
+                                    "status": "success",
+                                    "additional_kwargs": additional_kwargs,
+                                }
+                                all_tmp_messages.append(tool_message)
+                            # 渲染界面: Tool_Calls
+                            cls.update_blk_with_tool_calls(tool_message=tool_message)
 
-                    # ToolMessage
-                    elif chunk["data"].get("tools") is not None:
-                        # 保存到 all_tmp_messages
-                        messages = chunk["data"].get("tools").get("messages")
-                        for tool_msg in messages:
-                            additional_kwargs = tool_msg.additional_kwargs
-                            additional_kwargs["id"] = tool_msg.id
-                            additional_kwargs["ns"] = ()
-                            tool_message = {
-                                "role": "tool", "type": "tool",
-                                "content": tool_msg.content,
-                                "name": tool_msg.name,
-                                "tool_call_id": tool_msg.tool_call_id,
-                                # 'success', 'error'
-                                "status": "success",
-                                "additional_kwargs": additional_kwargs,
-                            }
-                            all_tmp_messages.append(tool_message)
-                        # 渲染界面: Tool_Calls
-                        cls.update_blk_with_tool_calls(tool_message=tool_message)
-
-                # 流式输出: 消息类型为 messages
+                    # 流式输出: 消息类型为 messages
+                    else:
+                        if isinstance(chunk.get("data")[0], AIMessageChunk):
+                            # 思考文本
+                            if chunk.get("data")[0].additional_kwargs.get("reasoning_content"):
+                                if need_create_think_blk:
+                                    new_think_message_blk = cls.add_blk_with_think(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
+                                    need_create_agent_blk = True
+                                    need_create_think_blk = False
+                                cls.update_blk_with_think(think_msg_blk=new_think_message_blk, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
+                            # 普通文本
+                            elif chunk.get("data")[0].content:
+                                if need_create_agent_blk:
+                                    new_agent_message_blk = cls.add_blk_with_agent(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].content)
+                                    need_create_agent_blk = False
+                                    need_create_think_blk = True
+                                cls.update_blk_with_agent(agent_msg_blk=new_agent_message_blk, content=chunk.get("data")[0].content)
+                            # 其余内容
+                            else:
+                                pass
+                # Sub Agent Message
                 else:
-                    if isinstance(chunk.get("data")[0], AIMessageChunk):
-                        # 思考文本
-                        if chunk.get("data")[0].additional_kwargs.get("reasoning_content"):
-                            if need_create_think_blk:
-                                new_think_message_blk = cls.add_blk_with_think(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
-                                need_create_agent_blk = True
-                                need_create_think_blk = False
-                            cls.update_blk_with_think(think_msg_blk=new_think_message_blk, content=chunk.get("data")[0].additional_kwargs.get("reasoning_content"))
-                        # 普通文本
-                        elif chunk.get("data")[0].content:
-                            if need_create_agent_blk:
-                                new_agent_message_blk = cls.add_blk_with_agent(lc_run_id=chunk.get("data")[0].id, content=chunk.get("data")[0].content)
-                                need_create_agent_blk = False
-                                need_create_think_blk = True
-                            cls.update_blk_with_agent(agent_msg_blk=new_agent_message_blk, content=chunk.get("data")[0].content)
-                        # 其余内容
-                        else:
-                            pass
-            # Sub Agent Message
-            else:
-                pass
-            
-            # 渲染/滚动界面
+                    pass
+                    
+                # 渲染/滚动界面
+                await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
+                cls.page.update()
+
+        except Exception as e:
+            # 添加一个错误的消息块, 并终止消息产生
+            cls.add_blk_with_error(content=str(e))
             await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
             cls.page.update()
+            logger.error(e)
         
         # 1.复制一份数据, 防止用户此刻点击别的会话
         cp_current_chat_data_filename = deepcopy(cls.current_chat_data_filename)
