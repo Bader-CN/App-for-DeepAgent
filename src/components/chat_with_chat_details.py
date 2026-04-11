@@ -96,7 +96,7 @@ class ChatDetails:
             margin=ft.Margin.symmetric(vertical=0, horizontal=20),
         )
         return chat_detail_info_panel
-    
+        
     @classmethod
     def chat_details_title_boder_enable(cls, e):
         """
@@ -200,6 +200,7 @@ class ChatDetails:
                 # User Message
                 if msg_dict.get("role") == "user":
                     user_blk = cls.add_blk_with_user(user_message=msg_dict)
+                    cls.add_blk_with_sub_tools(data=user_blk.data, type="user_message", flet_blk=user_blk)
                 # AI Thinking Message
                 if msg_dict.get("role") == "assistant" and msg_dict.get("additional_kwargs").get("reasoning_content") is not None:
                     lc_run_id = msg_dict.get("additional_kwargs").get("id")
@@ -217,7 +218,8 @@ class ChatDetails:
                 if msg_dict.get("role") == "assistant" and msg_dict.get("content").strip() not in ["", None]:
                     lc_run_id = msg_dict.get("additional_kwargs").get("id")
                     content = msg_dict.get("content")
-                    cls.add_blk_with_agent(lc_run_id=lc_run_id, content=content)
+                    ai_message_blk = cls.add_blk_with_agent(lc_run_id=lc_run_id, content=content)
+                    cls.add_blk_with_sub_tools(data=ai_message_blk.data, type="ai_message", flet_blk=ai_message_blk)
     
     @classmethod
     def add_blk_with_user(cls, user_message: dict):
@@ -244,31 +246,29 @@ class ChatDetails:
         user_msg_blk = ft.Container(
             ft.Column(
                 [
-                    ft.Row(
-                        [
-                            # 左侧占位
-                            ft.Container(expand=True, expand_loose=True),
-                            # 右侧内容
-                            ft.Container(         
-                                ft.Markdown(
-                                    value=render_md_text,
-                                    selectable=True,
-                                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                                    code_theme=ft.MarkdownCodeTheme.GITHUB,
-                                    code_style_sheet=ft.MarkdownStyleSheet(
-                                        code_text_style=ft.TextStyle(font_family="Consolas")
-                                    ),
-                                ),
-                                bgcolor=ft.Colors.GREEN_100,
-                                border_radius=5,
-                                padding=ft.Padding.symmetric(vertical=2, horizontal=5),
-                                margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+                    ft.Container(         
+                        ft.Markdown(
+                            value=render_md_text,
+                            selectable=True,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            code_theme=ft.MarkdownCodeTheme.GITHUB,
+                            code_style_sheet=ft.MarkdownStyleSheet(
+                                code_text_style=ft.TextStyle(font_family="Consolas")
                             ),
-                        ],
+                        ),
+                        bgcolor=ft.Colors.GREEN_100,
+                        border_radius=5,
+                        padding=ft.Padding.symmetric(vertical=3, horizontal=3),
                     ),
                 ],
+                alignment=ft.MainAxisAlignment.END,
+                horizontal_alignment=ft.CrossAxisAlignment.END,
+                spacing=3,
             ),
             data={"lc_run_id": lc_run_id, "type": "user_message"},
+            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            border_radius=5,
+            # border=ft.Border.all(width=1, color=ft.Colors.RED),
         )
         # 添加图片信息
         if len(images_list) > 0:
@@ -284,7 +284,6 @@ class ChatDetails:
                                         src=bytes_src,
                                         fit=ft.BoxFit.SCALE_DOWN,
                                     ),
-                                    margin=ft.Margin.symmetric(vertical=0, horizontal=20),
                                     expand=True,
                                     expand_loose=True,
                                     alignment=ft.Alignment.CENTER_RIGHT,
@@ -293,7 +292,10 @@ class ChatDetails:
                         ),
                     )
                 )
-        cls.chat_details_messages.current.controls.append(user_msg_blk)        
+        # 添加列表
+        cls.chat_details_messages.current.controls.append(user_msg_blk)
+        # 返回消息块    
+        return user_msg_blk     
 
     @classmethod
     def add_blk_with_think(cls, lc_run_id, content=""):
@@ -342,21 +344,30 @@ class ChatDetails:
         - content:      文本内容
         """
         agent_msg_blk = ft.Container(
-            ft.Markdown(
-                value=content,
-                selectable=True,
-                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                code_theme=ft.MarkdownCodeTheme.GITHUB,
-                code_style_sheet=ft.MarkdownStyleSheet(
-                    code_text_style=ft.TextStyle(font_family="Consolas")
-                ),
+            ft.Column(
+                [
+                    ft.Container(
+                        ft.Markdown(
+                            value=content,
+                            selectable=True,
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                            code_theme=ft.MarkdownCodeTheme.GITHUB,
+                            code_style_sheet=ft.MarkdownStyleSheet(
+                                code_text_style=ft.TextStyle(font_family="Consolas")
+                            ),
+                        ),
+                        bgcolor=ft.Colors.GREY_200,
+                        expand=True,
+                        alignment=ft.Alignment.TOP_LEFT,
+                        padding=ft.Padding.symmetric(vertical=3, horizontal=3),
+                        border_radius=5,
+                    ),
+                ],
+                spacing=3,
             ),
-            bgcolor=ft.Colors.GREY_100,
-            alignment=ft.Alignment.TOP_LEFT,
-            border_radius=5,
-            padding=ft.Padding.symmetric(vertical=2, horizontal=5),
+            data={"lc_run_id": lc_run_id, "type": "ai_message"},
             margin=ft.Margin.symmetric(vertical=0, horizontal=20),
-            data={"lc_run_id": lc_run_id, "type": "ai_message"}
+            # border=ft.Border.all(width=1, color=ft.Colors.RED),
         )
         # 添加列表
         cls.chat_details_messages.current.controls.append(agent_msg_blk)
@@ -443,6 +454,59 @@ class ChatDetails:
         )
         # 添加进 chat_details_messages 中
         cls.chat_details_messages.current.controls.append(error_blk)
+    
+    @classmethod
+    def add_blk_with_sub_tools(cls, data, type, flet_blk=None):
+        """
+        为每个消息块中添加一个控制条
+        如果提供了对应的控件(flet_blk), 则添加到指定控件中, 否则默认添加到最后
+
+        Args:
+        - data:     需要传递的字典数据
+        - type:     控件类型, 可以是 "ai_message" 或 "user_message"
+        - flet_blk: 对应的 flet container 控件对象, 需要是消息块
+        """
+        tool_copy = ft.IconButton(
+                        icon=ft.Icon(ft.Icons.COPY, size=16),
+                        data=data, 
+                        icon_size=18,
+                        padding=0,
+                        height=26,  # 强制压缩高度
+                        width=26,   # 强制压缩宽度   
+                        on_click=cls.blk_sub_tools_by_copy,
+                    )
+        tool_retry = ft.IconButton(
+                        icon=ft.Icon(ft.Icons.AUTORENEW, size=16),
+                        data=data, 
+                        icon_size=18,
+                        padding=0,
+                        height=26,  # 强制压缩高度
+                        width=26,   # 强制压缩宽度
+                        on_click=cls.blk_sub_tools_by_retry,
+                    )
+        # 生成对应的工具栏组件
+        if type == "ai_message":
+            blk_sub_tools = ft.Container(
+                ft.Row(
+                    [tool_copy, tool_retry],
+                    spacing=0,
+                ),
+                # border=ft.Border.all(width=1),
+            )
+        elif type == "user_message":
+            blk_sub_tools = ft.Container(
+                ft.Row(
+                    [tool_copy, tool_retry],
+                    spacing=0,
+                    alignment=ft.MainAxisAlignment.END,
+                ),
+                # border=ft.Border.all(width=1),
+            )
+        # 如果提供了对应的控件, 则添加到指定控件中, 否则默认添加到最后
+        if flet_blk:
+            flet_blk.content.controls.append(blk_sub_tools)
+        else:
+            cls.chat_details_messages.current.controls[-1].content.controls.append(blk_sub_tools)
 
     @classmethod
     def update_blk_with_think(cls, think_msg_blk, content):
@@ -464,7 +528,7 @@ class ChatDetails:
         - agent_msg_blk: Flet agent message 的消息控件
         - content:       最新的流式内容
         """
-        agent_msg_blk.content.value += content
+        agent_msg_blk.content.controls[0].content.value += content
 
     @classmethod
     def update_blk_with_tool_calls(cls, tool_message:dict):
@@ -510,31 +574,84 @@ class ChatDetails:
         tool_call_container = next((x for x in reversed(controls) if x.data.get("tool_call_id") == tool_call_id), None)
         if tool_call_container is not None:
             tool_call_container.content.controls.append(tool_call_response)
+
+    @classmethod
+    async def blk_sub_tools_by_copy(cls, e):
+        """
+        复制内容到剪贴板
+        """
+        data = e.control.data
+        controls = cls.chat_details_messages.current.controls
+        # 寻找当前控件
+        copy_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
+        if copy_container is not None:
+            if data.get("type") == "ai_message":
+                content = copy_container.content.controls[0].content.value
+            elif data.get("type") == "user_message":
+                content = copy_container.content.controls[0].content.value
+            await ft.Clipboard().set(value=content)
     
     @classmethod
-    def send_user_message(cls, user_message_by_text):
+    def blk_sub_tools_by_retry(cls, e):
+        """
+        让模型重新回复
+        """
+        data = e.control.data
+        controls = cls.chat_details_messages.current.controls
+        # 如果当前控件类型是 AI Message, 则向上寻找距离最近的 User Message
+        if data.get("type") == "ai_message":
+            retry_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
+            retry_idx = controls.index(retry_container)
+            controls = controls[:retry_idx + 1]
+            user_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "user_message"), None)
+        # 如果当前控件类型是 User Message, 则直接使用此控件
+        elif data.get("type") == "user_message":
+            user_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
+        # 如果 User Message 非空
+        if user_message_container:
+            user_message_data = user_message_container.data
+            # 更新界面
+            end_idx = cls.chat_details_messages.current.controls.index(user_message_container) + 1
+            cls.chat_details_messages.current.controls = cls.chat_details_messages.current.controls[:end_idx]
+            # 更新数据
+            new_messages = []
+            for message in cls.chat_details_data["messages"]:
+                new_messages.append(message)
+                if message.get("additional_kwargs").get("id") == user_message_data.get("lc_run_id"):
+                    break
+            cls.chat_details_data["messages"] = new_messages
+            # 发送请求
+            cls.send_user_message(retry=True)
+
+    
+    @classmethod
+    def send_user_message(cls, user_message_by_text=None, retry=False):
         """
         发送用户内容
         """
-        # 构建完整的用户消息数据
-        id = str(uuid.uuid4())
-        user_message = {"role": "user", "content":[{"type": "text", "text": user_message_by_text}], "additional_kwargs": {"id": id}}
-        prefix = cls.chat_list_control.data[:32]
-        images = app_chat_utils.get_images_with_temp(session_prefix=prefix)
-        # 处理图片
-        if images is not None:
-            for image in images:
-                image_path = os.path.abspath(os.path.join(app_chat_utils.temp_dir, image))
-                # https://docs.langchain.com/oss/python/langchain/messages#multimodal
-                user_message.get("content").append({"type": "image", "url": app_chat_utils.file_to_base64_uri(image_path)})
-        # UI 部分
-        # 更新前会检查最后一个消息组件是否为错误消息块, 如果是则会删掉
-        last_control = cls.chat_details_messages.current.controls[-1]
-        if last_control.data is not None and last_control.data.get("type") == "error":
-            del cls.chat_details_messages.current.controls[-1]
-        cls.add_blk_with_user(user_message=user_message)
-        # 添加到 chat_details_data["messages"] 中
-        cls.chat_details_data["messages"].append(user_message)
+        # 用户输入的消息不能为空, 并且不是重新发送
+        if user_message_by_text and retry is False:
+            # 构建完整的用户消息数据
+            id = str(uuid.uuid4())
+            user_message = {"role": "user", "content":[{"type": "text", "text": user_message_by_text}], "additional_kwargs": {"id": id}}
+            prefix = cls.chat_list_control.data[:32]
+            images = app_chat_utils.get_images_with_temp(session_prefix=prefix)
+            # 处理图片
+            if images is not None:
+                for image in images:
+                    image_path = os.path.abspath(os.path.join(app_chat_utils.temp_dir, image))
+                    # https://docs.langchain.com/oss/python/langchain/messages#multimodal
+                    user_message.get("content").append({"type": "image", "url": app_chat_utils.file_to_base64_uri(image_path)})
+            # UI 部分: 更新前会检查最后一个消息组件是否为错误消息块, 如果是则会删掉
+            last_control = cls.chat_details_messages.current.controls[-1]
+            if last_control.data is not None and last_control.data.get("type") == "error":
+                del cls.chat_details_messages.current.controls[-1]
+            # UI 部分: 添加新的消息块
+            user_blk = cls.add_blk_with_user(user_message=user_message)
+            cls.add_blk_with_sub_tools(data=user_blk.data, type="user_message", flet_blk=user_blk)
+            # 添加到 chat_details_data["messages"] 中
+            cls.chat_details_data["messages"].append(user_message)
+
         # 更新界面
         cls.page.update()
         # 发送 API 请求
@@ -576,7 +693,7 @@ class ChatDetails:
                         # 检查 AI Message 是否为全空
                         controls = cls.chat_details_messages.current.controls
                         ai_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "ai_message"), None)
-                        if ai_message_container is not None and ai_message_container.content.value.strip() == "":
+                        if ai_message_container is not None and ai_message_container.content.controls[0].content.value.strip() == "":
                             controls.remove(ai_message_container)
                             cls.page.update()
                             logger.warning("all empty content detected; removing AI Message block.")
@@ -599,6 +716,17 @@ class ChatDetails:
                             # 渲染界面: Tool_Calls
                             if ai_msg.tool_calls:
                                 cls.add_blk_with_tool_calls(tool_calls=ai_msg.tool_calls, additional_kwargs=ai_msg.additional_kwargs)
+                            # 渲染界面: AI Message
+                            if ai_msg.content.strip() != "":
+                                # 将当前最后一个消息块的 data 传给 sub_tools 消息块
+                                cls.add_blk_with_sub_tools(
+                                    data=cls.chat_details_messages.current.controls[-1].data, 
+                                    type="ai_message", 
+                                    flet_blk=cls.chat_details_messages.current.controls[-1],
+                                )
+                                # 刷新界面
+                                await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
+                                cls.page.update()
 
                         # ToolMessage
                         elif chunk["data"].get("tools") is not None:
