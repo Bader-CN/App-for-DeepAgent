@@ -92,8 +92,9 @@ class ChatDetails:
                 ],
             ),
             # border_radius=5,
+            # border=ft.Border.all(width=1),
             # padding=ft.Padding.symmetric(vertical=2, horizontal=5),
-            margin=ft.Margin.symmetric(vertical=0, horizontal=20),
+            margin=ft.Margin.symmetric(vertical=0, horizontal=10),
         )
         return chat_detail_info_panel
         
@@ -467,23 +468,32 @@ class ChatDetails:
         - flet_blk: 对应的 flet container 控件对象, 需要是消息块
         """
         tool_copy = ft.IconButton(
-                        icon=ft.Icon(ft.Icons.COPY, size=16),
-                        data=data, 
-                        icon_size=18,
-                        padding=0,
-                        height=26,  # 强制压缩高度
-                        width=26,   # 强制压缩宽度   
-                        on_click=cls.blk_sub_tools_by_copy,
-                    )
+            icon=ft.Icon(ft.Icons.COPY, size=16),
+            data=data, 
+            icon_size=18,
+            padding=0,
+            height=26,  # 强制压缩高度
+            width=26,   # 强制压缩宽度   
+            on_click=cls.blk_sub_tools_by_copy,
+        )
         tool_retry = ft.IconButton(
-                        icon=ft.Icon(ft.Icons.AUTORENEW, size=16),
-                        data=data, 
-                        icon_size=18,
-                        padding=0,
-                        height=26,  # 强制压缩高度
-                        width=26,   # 强制压缩宽度
-                        on_click=cls.blk_sub_tools_by_retry,
-                    )
+            icon=ft.Icon(ft.Icons.AUTORENEW, size=16),
+            data=data, 
+            icon_size=18,
+            padding=0,
+            height=26,  # 强制压缩高度
+            width=26,   # 强制压缩宽度
+            on_click=cls.blk_sub_tools_by_retry,
+        )
+        tool_edit = ft.IconButton(
+            icon=ft.Icon(ft.Icons.EDIT_OUTLINED, size=16),
+            data=data, 
+            icon_size=18,
+            padding=0,
+            height=26,  # 强制压缩高度
+            width=26,   # 强制压缩宽度
+            on_click=cls.blk_sub_tools_by_edit,
+        )
         # 生成对应的工具栏组件
         if type == "ai_message":
             blk_sub_tools = ft.Container(
@@ -496,7 +506,7 @@ class ChatDetails:
         elif type == "user_message":
             blk_sub_tools = ft.Container(
                 ft.Row(
-                    [tool_copy, tool_retry],
+                    [tool_copy, tool_retry, tool_edit],
                     spacing=0,
                     alignment=ft.MainAxisAlignment.END,
                 ),
@@ -583,6 +593,7 @@ class ChatDetails:
         data = e.control.data
         controls = cls.chat_details_messages.current.controls
         # 寻找当前控件
+        # 原则上通过 e.control.parent.parent.parent.parent 应该也可以拿到该组件, 但如果 UI 布局发生变化, 这个方法需要调整更多内容
         copy_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
         if copy_container is not None:
             if data.get("type") == "ai_message":
@@ -600,12 +611,14 @@ class ChatDetails:
         controls = cls.chat_details_messages.current.controls
         # 如果当前控件类型是 AI Message, 则向上寻找距离最近的 User Message
         if data.get("type") == "ai_message":
+            # 原则上通过 e.control.parent.parent.parent.parent 应该也可以拿到该组件, 但如果 UI 布局发生变化, 这个方法需要调整更多内容
             retry_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
             retry_idx = controls.index(retry_container)
             controls = controls[:retry_idx + 1]
             user_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("type") == "user_message"), None)
         # 如果当前控件类型是 User Message, 则直接使用此控件
         elif data.get("type") == "user_message":
+            # 原则上通过 e.control.parent.parent.parent.parent 应该也可以拿到该组件, 但如果 UI 布局发生变化, 这个方法需要调整更多内容
             user_message_container = next((x for x in reversed(controls) if x.data is not None and x.data.get("lc_run_id") == data.get("lc_run_id")), None)
         # 如果 User Message 非空
         if user_message_container:
@@ -623,6 +636,75 @@ class ChatDetails:
             # 发送请求
             cls.send_user_message(retry=True)
 
+    @classmethod
+    def blk_sub_tools_by_edit(cls, e):
+        """
+        Message 修改按钮
+        """
+        data = e.control.data
+        controls = cls.chat_details_messages.current.controls
+        edit_column = e.control.parent.parent.parent
+        old_message_text = deepcopy(edit_column.controls[0])
+        old_message_tool = deepcopy(edit_column.controls[1])
+        # 可修改的内容区域
+        new_message_text = ft.Container(
+            ft.TextField(
+                value=old_message_text.content.value,
+                multiline=True,
+                max_lines=3,
+                expand=True,
+            ),
+        )
+        # 内嵌函数
+        def click_cancel(e):
+            edit_column.controls[0] = old_message_text
+            edit_column.controls[1] = old_message_tool
+        def click_save(e):
+            new_content = new_message_text.content.value
+            old_message_text.content.value = new_content
+            edit_column.controls[0] = old_message_text
+            edit_column.controls[1] = old_message_tool
+            # 修改数据
+            for message in cls.chat_details_data["messages"]:
+                if message.get("role") == "user" and message.get("additional_kwargs").get("id") == data.get("lc_run_id"):
+                    for msg in message["content"]:
+                        if msg.get("type") == "text":
+                            msg["text"] = new_content
+                            break
+                    break
+            # 保存数据
+            app_chat_utils.save_chat_details_data_with_filename(cls.current_chat_data_filename, cls.chat_details_data)
+
+        # 工具栏
+        new_message_tool = ft.Container(
+            ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icon(ft.Icons.CLOSE, size=16),
+                        data=data, 
+                        icon_size=18,
+                        padding=0,
+                        height=26,  # 强制压缩高度
+                        width=26,   # 强制压缩宽度   
+                        on_click=click_cancel,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icon(ft.Icons.CHECK, size=16),
+                        data=data, 
+                        icon_size=18,
+                        padding=0,
+                        height=26,  # 强制压缩高度
+                        width=26,   # 强制压缩宽度   
+                        on_click=click_save,
+                    ),
+                ],
+                spacing=0,
+                alignment=ft.MainAxisAlignment.END,
+            ),
+        )
+        # 刷新替换
+        edit_column.controls[0] = new_message_text
+        edit_column.controls[1] = new_message_tool
     
     @classmethod
     def send_user_message(cls, user_message_by_text=None, retry=False):
