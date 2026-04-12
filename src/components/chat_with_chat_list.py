@@ -51,6 +51,7 @@ class ChatList:
             cls.chat_listview.controls.append(
                 ft.ListTile(
                     title=title,
+                    title_text_style=ft.TextStyle(font_family="Microsoft YaHei", size=13, color=ft.Colors.BLACK),
                     leading=ft.ReorderableDragHandle(
                         content=ft.Icon(ft.Icons.DRAG_INDICATOR, color=ft.Colors.GREY_500),
                         mouse_cursor=ft.MouseCursor.GRAB,

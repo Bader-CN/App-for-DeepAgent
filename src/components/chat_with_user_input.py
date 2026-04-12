@@ -27,7 +27,7 @@ class UserInput:
         attachments = ft.Container(
             ft.Row(),
             ref=cls.user_attachments,
-            # border=ft.Border.all(width=1)
+            # border=ft.Border.all(width=1, color=ft.Colors.BLUE),
         )
         # 输入的文本框
         input_textfield = ft.TextField(
@@ -35,6 +35,10 @@ class UserInput:
             multiline=True,
             max_lines=3,
             expand=True,
+            dense=True,
+            content_padding=ft.Padding(left=0, top=10, right=0, bottom=20),
+            hint_text="按 Shift + Enter 发送",
+            text_style=ft.TextStyle(font_family="Microsoft YaHei", size=14),
             ref=cls.user_input,
             on_focus=cls.switch_user_input_tag,
             on_blur=cls.switch_user_input_tag,
@@ -64,10 +68,11 @@ class UserInput:
                         ref=cls.user_input_panel,
                     ),
                 ],
+                spacing=0,
             ),
             border=ft.Border.all(width=1, color=ft.Colors.GREY),
             border_radius=10,
-            padding=ft.Padding(left=10, right=10, top=5, bottom=10),
+            padding=ft.Padding(left=15, right=15, top=5, bottom=10),
         )
         # 异步加载 "主智能体" 和 "总结模型"
         # https://docs.flet.dev/controls/page/?h=run_ta#flet.Page.render_views

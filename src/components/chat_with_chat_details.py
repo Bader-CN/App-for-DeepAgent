@@ -78,7 +78,7 @@ class ChatDetails:
                         value=filename[33:-5], 
                         expand=True, 
                         height=32,
-                        text_size=14,
+                        text_style=ft.TextStyle(font_family="Microsoft YaHei", size=14, weight=ft.FontWeight.BOLD),
                         content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
                         border=ft.InputBorder.OUTLINE,
                         border_color=ft.Colors.TRANSPARENT,
@@ -223,12 +223,12 @@ class ChatDetails:
                     ai_message_blk = cls.add_blk_with_agent(lc_run_id=lc_run_id, content=content)
                     cls.add_blk_with_sub_tools(data=ai_message_blk.data, type="ai_message", flet_blk=ai_message_blk)
 
-            # 渲染界面
-            async def update():
-                await asyncio.sleep(0.1) # 强制等待一会儿, 给 Flet 一点时间来处理 controls 的变更和布局计算
-                await cls.chat_details_messages.current.scroll_to(offset=-1, duration=500)
-                cls.page.update()
-            cls.page.run_task(update)
+            # # 渲染界面
+            # async def update():
+            #     await asyncio.sleep(0.1) # 强制等待一会儿, 给 Flet 一点时间来处理 controls 的变更和布局计算
+            #     await cls.chat_details_messages.current.scroll_to(offset=-1, duration=500)
+            #     cls.page.update()
+            # cls.page.run_task(update)
     
     @classmethod
     def add_blk_with_user(cls, user_message: dict):
@@ -261,13 +261,16 @@ class ChatDetails:
                             selectable=True,
                             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                             code_theme=ft.MarkdownCodeTheme.GITHUB,
+                            md_style_sheet=ft.MarkdownStyleSheet(
+                                p_text_style=ft.TextStyle(font_family="Microsoft YaHei", size=13),
+                            ),
                             code_style_sheet=ft.MarkdownStyleSheet(
-                                code_text_style=ft.TextStyle(font_family="Consolas")
+                                code_text_style=ft.TextStyle(font_family="Consolas"),
                             ),
                         ),
                         bgcolor=ft.Colors.GREEN_100,
                         border_radius=5,
-                        padding=ft.Padding.symmetric(vertical=3, horizontal=3),
+                        padding=ft.Padding.symmetric(vertical=5, horizontal=5),
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.END,
@@ -361,14 +364,17 @@ class ChatDetails:
                             selectable=True,
                             extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                             code_theme=ft.MarkdownCodeTheme.GITHUB,
+                            md_style_sheet=ft.MarkdownStyleSheet(
+                                p_text_style=ft.TextStyle(font_family="Microsoft YaHei", size=13),
+                            ),
                             code_style_sheet=ft.MarkdownStyleSheet(
-                                code_text_style=ft.TextStyle(font_family="Consolas")
+                                code_text_style=ft.TextStyle(font_family="Consolas"),
                             ),
                         ),
                         bgcolor=ft.Colors.GREY_200,
                         expand=True,
                         alignment=ft.Alignment.TOP_LEFT,
-                        padding=ft.Padding.symmetric(vertical=3, horizontal=3),
+                        padding=ft.Padding.symmetric(vertical=5, horizontal=5),
                         border_radius=5,
                     ),
                 ],
@@ -430,6 +436,7 @@ class ChatDetails:
                     # 不设置默认为 ft.Padding.symmetric(horizontal=16.0)
                     tile_padding=5,
                     dense=True,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 ),
                 # 对该组件做标记, 用于未来的定位和回滚
                 data={"tool_call_id":tool_call_id, "lc_run_id": lc_run_id, "type": "ai_tool_call"},
@@ -658,8 +665,12 @@ class ChatDetails:
             ft.TextField(
                 value=old_message_text.content.value,
                 multiline=True,
+                min_lines=1, 
                 max_lines=3,
+                content_padding=ft.Padding.symmetric(vertical=10, horizontal=5),
                 expand=True,
+                dense=True,
+                text_style=ft.TextStyle(font_family="Microsoft YaHei", size=13),
             ),
         )
         # 内嵌函数
@@ -857,9 +868,11 @@ class ChatDetails:
                                 cls.update_blk_with_agent(agent_msg_blk=new_agent_message_blk, content=chunk.get("data")[0].content)
                             # 其余内容
                             else:
+                                # logger.warning(chunk)
                                 pass
                 # Sub Agent Message
                 else:
+                    # logger.debug(chunk)
                     pass
                     
                 # 渲染/滚动界面 - 这里不需要等待 await asyncio.sleep, 否则文字渲染速度会变慢
