@@ -1,5 +1,6 @@
 import os
 import ast
+import asyncio
 import uuid
 import base64
 
@@ -221,6 +222,13 @@ class ChatDetails:
                     content = msg_dict.get("content")
                     ai_message_blk = cls.add_blk_with_agent(lc_run_id=lc_run_id, content=content)
                     cls.add_blk_with_sub_tools(data=ai_message_blk.data, type="ai_message", flet_blk=ai_message_blk)
+
+            # 渲染界面
+            async def update():
+                await asyncio.sleep(0.1) # 强制等待一会儿, 给 Flet 一点时间来处理 controls 的变更和布局计算
+                await cls.chat_details_messages.current.scroll_to(offset=-1, duration=500)
+                cls.page.update()
+            cls.page.run_task(update)
     
     @classmethod
     def add_blk_with_user(cls, user_message: dict):
@@ -642,7 +650,6 @@ class ChatDetails:
         Message 修改按钮
         """
         data = e.control.data
-        controls = cls.chat_details_messages.current.controls
         edit_column = e.control.parent.parent.parent
         old_message_text = deepcopy(edit_column.controls[0])
         old_message_tool = deepcopy(edit_column.controls[1])
@@ -855,7 +862,7 @@ class ChatDetails:
                 else:
                     pass
                     
-                # 渲染/滚动界面
+                # 渲染/滚动界面 - 这里不需要等待 await asyncio.sleep, 否则文字渲染速度会变慢
                 await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
                 cls.page.update()
 
@@ -865,26 +872,31 @@ class ChatDetails:
             await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
             cls.page.update()
             logger.error(e)
-        
-        # 1.复制一份数据, 防止用户此刻点击别的会话
+
+        # 1.最后再次渲染一遍, 确保能到达底部
+        # - 这里强制等待一会儿, 给 Flet 一点时间来处理 controls 的变更和布局计算
+        await asyncio.sleep(0.05)
+        await cls.chat_details_messages.current.scroll_to(offset=-1, duration=0)
+        cls.page.update()
+        # 2.复制一份数据, 防止用户此刻点击别的会话
         cp_current_chat_data_filename = deepcopy(cls.current_chat_data_filename)
         cp_chat_details_data = deepcopy(cls.chat_details_data)
         cp_all_tmp_messages = deepcopy(all_tmp_messages)
-        # 2.整合数据
+        # 3.整合数据
         cp_chat_details_data["messages"].extend(cp_all_tmp_messages)
-        # 3.保持到 ChatData 中 (这里需要保存复制后的)
+        # 4.保持到 ChatData 中 (这里需要保存复制后的)
         app_chat_utils.save_chat_details_data_with_filename(cp_current_chat_data_filename, cp_chat_details_data)
-        # 4.删除 & 刷新 附件列表
+        # 5.删除 & 刷新 附件列表
         from src.components.chat_with_user_input import UserInput
         app_chat_utils.delete_tempfiles_with_prefix(prefix=cls.chat_list_control.data[:32])
         UserInput.update_attachments(prefix=cls.chat_list_control.data[:32])
         UserInput.switch_button_to_send()
         cls.page.update()
-        # 5.重新赋值 (如果此刻用户没有切换对话列表)
+        # 6.重新赋值 (如果此刻用户没有切换对话列表)
         if cls.chat_list_control.data == cp_current_chat_data_filename:
             cls.chat_details_data = cp_chat_details_data
             logger.debug(f"chat history has been saved: {cp_current_chat_data_filename}")
         else:
             logger.warning(f"switch to view chatlist, Skip updating <cls.chat_details_data>")
-        # 6.总结标题
+        # 7.总结标题
         cls.page.run_task(cls.chat_details_title_summary, cp_current_chat_data_filename, cp_chat_details_data)        
