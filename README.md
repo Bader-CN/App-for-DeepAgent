@@ -17,6 +17,7 @@ pip install -U langchain-ollama
 # 其余内容
 pip install -U PyYAML
 pip install -U pillow
+pip install -U loguru
 ```
 
 # 运行命令

@@ -1,7 +1,8 @@
 import flet as ft
 
-from src.utils.log import logger
+from src.endpoints import guiEndPoints
 from src.components.settings_with_model_services import ModelServices
+from src.utils.log import logger
 
 class SettingsView:
     """
@@ -38,6 +39,8 @@ class SettingsView:
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             padding=ft.Padding.symmetric(vertical=10, horizontal=0),
+            # 暴露 settings_lv1
+            ref=guiEndPoints.settings["settings_view_lv1"],
         )
         # ft.Row Contorl 对象
         if self.settings_lv1 not in self.right_view.content.controls:
@@ -57,15 +60,19 @@ class SettingsView:
                 ft.Text(value="这是 common_settings 界面"),
                 expand=True,
                 alignment=ft.Alignment.CENTER,
+                ref=guiEndPoints.settings["settings_view_lv2"],
             )
             # 追加组件
             self.right_view.content.controls.append(self.settings_lv2)
 
         # 模型服务
         elif tag == "model_services":
-            self.settings_lv3 = ft.Container(expand=True, padding=ft.Padding(left=20, top=15, right=20, bottom=15))
-            # 暴露 settings_lv3 给 ModelServices
-            ModelServices.settings_lv3 = self.settings_lv3
+            self.settings_lv3 = ft.Container(
+                expand=True, 
+                padding=ft.Padding(left=20, top=15, right=20, bottom=15), 
+                # 暴露 settings_lv3 给 ModelServices
+                ref=guiEndPoints.settings["settings_view_lv3"],
+            )
             self.settings_lv2 = ft.Container(
                 ft.Column(
                     [
@@ -76,9 +83,9 @@ class SettingsView:
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding.symmetric(vertical=10, horizontal=0),
+                # 暴露 settings_lv2 给 ModelServices
+                ref=guiEndPoints.settings["settings_view_lv2"],
             )
-            # 暴露 settings_lv2 给 ModelServices
-            ModelServices.settings_lv2 = self.settings_lv2
             # 追加组件
             self.right_view.content.controls.append(self.settings_lv2)
             self.right_view.content.controls.append(ft.VerticalDivider(width=1))

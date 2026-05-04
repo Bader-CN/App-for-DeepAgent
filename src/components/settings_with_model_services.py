@@ -1,12 +1,13 @@
 import flet as ft
 
+from src.endpoints import guiEndPoints
 from src.utils.globals import app_config
 from src.utils.log import logger
 
 class ModelServices:
-    # 类变量: 页面布局
-    settings_lv2 = None
-    settings_lv3 = None
+    # 类变量: 页面布局 (均是 ft.Ref 引用类型, 需要通过 current 来获取当前内容)
+    settings_lv2 = guiEndPoints.settings["settings_view_lv2"]
+    settings_lv3 = guiEndPoints.settings["settings_view_lv3"]
     # 类变量: Model_Services 列表
     model_services_listview = None
     # 类变量: Model_Services 详情
@@ -110,7 +111,7 @@ class ModelServices:
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
-        cls.settings_lv3.content = model_service_page
+        cls.settings_lv3.current.content = model_service_page
 
     @classmethod
     def model_services_save(cls, e):
@@ -135,8 +136,8 @@ class ModelServices:
         # - 如果不更新此标记位, 会导致 cfg_enable 切换失效
         cls.old_display_name = cls.cfg_display_name.current.value
         # 重新渲染: 保留 "添加按钮", 但重新渲染 "模型服务" 列表
-        cls.settings_lv2.content.controls = cls.settings_lv2.content.controls[0:1]
-        cls.settings_lv2.content.controls.append(cls.create_model_services_component())
+        cls.settings_lv2.current.content.controls = cls.settings_lv2.current.content.controls[0:1]
+        cls.settings_lv2.current.content.controls.append(cls.create_model_services_component())
     
     @classmethod
     def model_services_add(cls, e):
@@ -156,8 +157,8 @@ class ModelServices:
         all_models.append(new_cfg)
         app_config.write_yaml()
         # 重新渲染: 保留 "添加按钮", 但重新渲染 "模型服务" 列表
-        cls.settings_lv2.content.controls = cls.settings_lv2.content.controls[0:1]
-        cls.settings_lv2.content.controls.append(cls.create_model_services_component())
+        cls.settings_lv2.current.content.controls = cls.settings_lv2.current.content.controls[0:1]
+        cls.settings_lv2.current.content.controls.append(cls.create_model_services_component())
 
     @classmethod
     def model_services_delete(cls, e):
@@ -170,9 +171,9 @@ class ModelServices:
         # 重新渲染
         # - 保留 "添加按钮", 但重新渲染 "模型服务" 列表
         # - 清空 "模型详情"
-        cls.settings_lv2.content.controls = cls.settings_lv2.content.controls[0:1]
-        cls.settings_lv2.content.controls.append(cls.create_model_services_component())
-        cls.settings_lv3.content.controls.clear()
+        cls.settings_lv2.current.content.controls = cls.settings_lv2.current.content.controls[0:1]
+        cls.settings_lv2.current.content.controls.append(cls.create_model_services_component())
+        cls.settings_lv3.current.content.controls.clear()
         # 清空标记位
         cls.old_display_name = None
 
@@ -186,5 +187,5 @@ class ModelServices:
         model_cfg["enable"] = not model_cfg.get("enable")
         app_config.write_yaml()
         # 重新渲染: 保留 "添加按钮", 但重新渲染 "模型服务" 列表
-        cls.settings_lv2.content.controls = cls.settings_lv2.content.controls[0:1]
-        cls.settings_lv2.content.controls.append(cls.create_model_services_component())
+        cls.settings_lv2.current.content.controls = cls.settings_lv2.current.content.controls[0:1]
+        cls.settings_lv2.current.content.controls.append(cls.create_model_services_component())
